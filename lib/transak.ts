@@ -30,7 +30,10 @@ async function accessToken(): Promise<string> {
     headers: { "api-secret": API_SECRET!, "content-type": "application/json" },
     body: JSON.stringify({ apiKey: API_KEY }),
   });
-  if (!res.ok) throw new Error(`Transak refresh-token failed: ${res.status}`);
+  if (!res.ok) {
+    const t = await res.text().catch(() => "");
+    throw new Error(`Transak refresh-token failed ${res.status}: ${t}`);
+  }
   const d = await res.json();
   const value = d?.data?.accessToken as string;
   let exp = Number(d?.data?.expiresAt ?? 0);

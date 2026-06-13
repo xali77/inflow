@@ -34,10 +34,13 @@ export async function POST(req: NextRequest) {
   const product: RampProduct = body.product === "SELL" ? "SELL" : "BUY";
 
   try {
+    // Must exactly match a domain whitelisted in the Transak dashboard.
+    const referrerDomain =
+      process.env.TRANSAK_REFERRER_DOMAIN || req.nextUrl.hostname || "localhost";
     const widgetUrl = await createWidgetUrl({
       walletAddress: wallet.address,
       product,
-      referrerDomain: req.nextUrl.hostname || "localhost",
+      referrerDomain,
     });
     return NextResponse.json({ widgetUrl });
   } catch (e) {

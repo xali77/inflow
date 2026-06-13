@@ -11,6 +11,11 @@ import FlowScoreRing from "./flow-score-ring";
 
 const appId = process.env.NEXT_PUBLIC_WLD_APP_ID as `app_${string}` | undefined;
 const action = process.env.NEXT_PUBLIC_WLD_ACTION ?? "verify-human";
+// "staging" lets the World ID simulator (simulator.worldcoin.org) stand in for
+// a real World App during testing. Flip to "production" for a live deploy.
+const environment = (process.env.NEXT_PUBLIC_WLD_ENV ?? "staging") as
+  | "staging"
+  | "production";
 
 type Props = {
   address?: string;
@@ -72,6 +77,7 @@ export default function WorldIdVerify({ address, verified, onVerified }: Props) 
           app_id={appId}
           action={action}
           rp_context={rpContext}
+          environment={environment}
           allow_legacy_proofs={true}
           preset={proofOfHuman({ signal: address })}
           handleVerify={handleVerify}

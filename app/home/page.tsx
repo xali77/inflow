@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { usePrivy } from "@privy-io/react-auth";
 import Balance from "@/components/balance";
@@ -43,7 +44,16 @@ export default function Home() {
   return (
     <main className="flex flex-1 flex-col px-6 pb-10">
       <header className="flex items-center justify-between py-4">
-        <span className="text-sm font-medium">Inflow</span>
+        <span className="flex items-center gap-2 text-sm font-medium">
+          <Image
+            src="/logo.png"
+            alt="Inflow"
+            width={24}
+            height={24}
+            className="rounded-md"
+          />
+          Inflow
+        </span>
         <button
           onClick={logout}
           className="text-ink-soft text-xs hover:text-ink"

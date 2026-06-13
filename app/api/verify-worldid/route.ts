@@ -109,7 +109,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(
       {
         error:
-          "This World ID is already linked to another Inflow account. One person can only have one score.",
+          "This World ID is already linked to another Flows account. One person can only have one score.",
       },
       { status: 409 }
     );

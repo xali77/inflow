@@ -9,7 +9,7 @@ const geistSans = Geist({
 });
 
 export const metadata: Metadata = {
-  title: "Inflow",
+  title: "Flows",
   description: "Money that arrives builds your score.",
 };
 

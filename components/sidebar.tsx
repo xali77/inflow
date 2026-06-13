@@ -56,8 +56,8 @@ export default function Sidebar() {
     <aside className="hidden w-60 shrink-0 flex-col justify-between border-r border-line px-4 py-6 lg:flex">
       <div>
         <div className="mb-8 flex items-center gap-2 px-2">
-          <Image src="/logo.png" alt="Inflow" width={28} height={28} className="rounded-lg" />
-          <span className="font-semibold">Inflow</span>
+          <Image src="/logo.png" alt="Flows" width={28} height={28} className="rounded-lg" />
+          <span className="font-semibold">Flows</span>
         </div>
 
         <nav className="flex flex-col gap-1">

@@ -1,4 +1,4 @@
-# Inflow
+# Flows
 
 A remittance neobank. Money that arrives builds your score.
 

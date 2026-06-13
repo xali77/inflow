@@ -17,13 +17,13 @@ export default function Landing() {
     <main className="flex min-h-screen flex-1 flex-col items-center justify-center gap-6 px-6 text-center">
       <Image
         src="/logo.png"
-        alt="Inflow"
+        alt="Flows"
         width={80}
         height={80}
         priority
         className="rounded-2xl"
       />
-      <h1 className="text-3xl font-semibold tracking-tight">INFLOW</h1>
+      <h1 className="text-3xl font-semibold tracking-tight">Flows</h1>
       <p className="text-ink-soft">Money that arrives builds your score.</p>
       <button
         onClick={login}

@@ -194,8 +194,8 @@ export default function Cards() {
       <div className="flex-1">
         <div className="flex items-center justify-between border-b border-line px-5 py-4 lg:hidden">
           <span className="flex items-center gap-2 font-medium">
-            <Image src="/logo.png" alt="Inflow" width={24} height={24} className="rounded-md" />
-            Inflow
+            <Image src="/logo.png" alt="Flows" width={24} height={24} className="rounded-md" />
+            Flows
           </span>
           <div className="flex items-center gap-2">
             <button

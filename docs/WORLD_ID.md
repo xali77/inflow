@@ -1,13 +1,13 @@
-# World ID 4.0 in Inflow
+# World ID 4.0 in Flows
 
-How Inflow integrates World ID, why it's load-bearing rather than decorative,
+How Flows integrates World ID, why it's load-bearing rather than decorative,
 and how the integration maps to the Track B (World ID) requirements.
 
 ---
 
 ## TL;DR
 
-Inflow is a remittance neobank whose premise is **"money that arrives builds
+Flows is a remittance neobank whose premise is **"money that arrives builds
 your score"** — a FlowScore credit layer that grows as a person receives money
 over time, and eventually unlocks under-collateralized credit (advances against
 expected inflows).
@@ -52,11 +52,11 @@ qualification's first and clearest constraint category.
 
 World ID 4.0 introduces a **Relying Party (RP)** model: your backend signs each
 proof request with a secret key, so proofs can't be replayed against your app by
-a third party. Inflow implements the full round-trip.
+a third party. Flows implements the full round-trip.
 
 ```
                     ┌─────────────────────────────────────────────┐
-   user taps        │  Inflow client (Next.js)                     │
+   user taps        │  Flows client (Next.js)                     │
    "Verify"  ─────► │  components/world-id-verify.tsx              │
                     │   1. POST /api/worldid/sign  ───────────────┐│
                     └──────────────────────────────────────────────┘│
@@ -142,7 +142,7 @@ in localStorage.**
   so a leaked/valid proof can't be reused to verify someone else's account.
 - **RP-signed requests.** Each request is signed with a secret key
   (`WLD_RP_SIGNING_KEY`), preventing third parties from issuing proof requests
-  as Inflow. The action is signed server-side and never client-controlled.
+  as Flows. The action is signed server-side and never client-controlled.
 - **One human, one account.** A nullifier already bound to a wallet can't be
   re-bound to another → HTTP 409. This is the uniqueness constraint, enforced
   at write time.
@@ -153,7 +153,7 @@ in localStorage.**
 
 ## How this maps to Track B (World ID) requirements
 
-| Requirement | Inflow |
+| Requirement | Flows |
 |---|---|
 | Uses **World ID 4.0** | `@worldcoin/idkit` 4.x, `IDKitRequestWidget`, `proofOfHuman`, RP signing, `/api/v4/verify` |
 | **As a real constraint** | Uniqueness (one human, one account) gates the FlowScore credit layer |

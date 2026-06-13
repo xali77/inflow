@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { usePrivy } from "@privy-io/react-auth";
+import { usePrivy, useDelegatedActions } from "@privy-io/react-auth";
 
 type DisplayCard = {
   id: string;
@@ -49,8 +49,10 @@ function maskPan(pan: string) {
 }
 
 export default function Cards() {
-  const { ready, authenticated, getAccessToken } = usePrivy();
+  const { ready, authenticated, getAccessToken, user } = usePrivy();
+  const { delegateWallet } = useDelegatedActions();
   const router = useRouter();
+  const address = user?.wallet?.address;
 
   const [configured, setConfigured] = useState<boolean | null>(null);
   const [cards, setCards] = useState<DisplayCard[]>([]);
@@ -136,6 +138,17 @@ export default function Cards() {
     }
   }, [amount, type, authHeader, load]);
 
+  // One-time: delegate the embedded wallet so the backend can pay x402 from it.
+  const enablePayments = useCallback(async () => {
+    if (!address) return;
+    setError(null);
+    try {
+      await delegateWallet({ address, chainType: "ethereum" });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not enable payments");
+    }
+  }, [address, delegateWallet]);
+
   const refresh = useCallback(
     async (card: DisplayCard, action: "refresh" | "cancel") => {
       setError(null);
@@ -174,25 +187,29 @@ export default function Cards() {
       : Number(amount).toFixed(2);
 
   return (
-    <main className="flex flex-1 flex-col px-6 pb-10">
-      <header className="flex items-center justify-between py-4">
-        <button onClick={() => router.push("/home")} className="text-ink-soft text-sm">
+    <main className="flex flex-1 flex-col gap-4 px-5 pb-12">
+      <header className="flex items-center justify-between py-5">
+        <button
+          onClick={() => router.push("/home")}
+          className="text-ink-soft text-sm transition-colors hover:text-ink"
+        >
           ‹ Back
         </button>
-        <span className="text-sm font-medium">Cards</span>
+        <span className="font-medium">Cards</span>
         <span className="w-10" />
       </header>
 
       {configured === false ? (
-        <div className="mt-6 rounded-xl border border-line bg-surface px-4 py-5">
+        <div className="card p-5">
           <p className="text-sm">Cards aren&rsquo;t set up yet</p>
-          <p className="text-ink-soft mt-1 text-xs">
-            Set LASO_WALLET_PRIVATE_KEY (a Base wallet funded with USDC) to enable
-            card issuing.
+          <p className="text-ink-soft mt-2 text-xs">
+            Cards are paid from your own wallet via Privy. Configure the Privy
+            server keys (PRIVY_APP_SECRET + PRIVY_AUTHORIZATION_PRIVATE_KEY) to
+            enable card issuing.
           </p>
         </div>
       ) : (
-        <section className="flex flex-col gap-6 pt-2">
+        <section className="flex flex-col gap-4">
           {accountBalance != null && (
             <p className="text-ink-soft text-sm">
               Laso balance:{" "}
@@ -200,8 +217,19 @@ export default function Cards() {
             </p>
           )}
 
-          <div className="rounded-xl border border-line bg-surface p-4">
-            <p className="mb-3 text-sm">Order a card</p>
+          <div className="card p-5">
+            <div className="mb-3 flex items-center justify-between">
+              <p className="text-sm font-medium">Order a card</p>
+              <button
+                onClick={enablePayments}
+                className="text-ink-soft text-xs transition-colors hover:text-ink"
+              >
+                Enable card payments
+              </button>
+            </div>
+            <p className="text-ink-soft mb-3 text-xs">
+              Paid from your own wallet — enable card payments once to authorize.
+            </p>
             <div className="mb-3 grid grid-cols-2 gap-3">
               {(["intl", "us"] as const).map((t) => (
                 <button
@@ -210,10 +238,10 @@ export default function Cards() {
                     setType(t);
                     setAmount(t === "intl" ? "100" : "5");
                   }}
-                  className={`rounded-xl border px-3 py-2 text-sm ${
+                  className={`rounded-xl border px-3 py-2.5 text-sm transition-colors ${
                     type === t
                       ? "border-ink bg-ground text-ink"
-                      : "border-line text-ink-soft"
+                      : "border-line text-ink-soft hover:border-ink-soft/40"
                   }`}
                 >
                   {t === "intl" ? "International" : "U.S."}
@@ -242,16 +270,16 @@ export default function Cards() {
             <button
               onClick={order}
               disabled={busy || Number(amount) < (type === "intl" ? 100 : 5)}
-              className="mt-3 w-full rounded-xl border border-line bg-surface px-4 py-3 text-ink disabled:opacity-50"
+              className="mt-4 w-full rounded-xl border border-line bg-ground px-4 py-3 font-medium text-ink transition-colors hover:border-ink-soft/40 disabled:opacity-50"
             >
               {busy ? "Ordering…" : `Order ${type === "intl" ? "international" : "U.S."} card`}
             </button>
           </div>
 
           <div className="flex flex-col gap-3">
-            <p className="text-ink-soft text-sm">Your cards</p>
+            <p className="eyebrow mt-2">Your cards</p>
             {cards.length === 0 ? (
-              <p className="rounded-xl border border-line bg-surface px-4 py-6 text-center text-sm text-ink-soft">
+              <p className="card px-4 py-6 text-center text-sm text-ink-soft">
                 No cards yet.
               </p>
             ) : (
@@ -259,10 +287,7 @@ export default function Cards() {
                 const isReady = !!card.cardNumber;
                 const show = revealed[card.id];
                 return (
-                  <div
-                    key={`${card.type}-${card.id}`}
-                    className="rounded-xl border border-line bg-surface p-4"
-                  >
+                  <div key={`${card.type}-${card.id}`} className="card p-5">
                     <div className="flex items-center justify-between">
                       <span className="text-sm">
                         {card.label ??

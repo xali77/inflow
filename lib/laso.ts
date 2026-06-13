@@ -3,45 +3,83 @@ import {
   http,
   parseUnits,
   publicActions,
+  type Address,
   type Hex,
 } from "viem";
-import { privateKeyToAccount } from "viem/accounts";
+import { toAccount } from "viem/accounts";
 import { base } from "viem/chains";
 import { wrapFetchWithPayment } from "x402-fetch";
 import { wrapFetchWithSIWx } from "@x402/extensions/sign-in-with-x";
+import { getPrivy } from "./privy";
 
-// Laso Finance: x402-paywalled card issuing API. Calls are paid with USDC on
-// Base from a dedicated app wallet (LASO_WALLET_PRIVATE_KEY). Auth to free
-// Bearer routes uses a CAIP-122 (SIWx) wallet signature.
+// Laso Finance: x402-paywalled card issuing. Payments are made from each user's
+// own Privy embedded wallet — the backend never holds a funded key. We wrap the
+// user's Privy wallet as a viem account whose signing is delegated to Privy's
+// Wallet API (authorized by PRIVY_AUTHORIZATION_PRIVATE_KEY once the user has
+// delegated their wallet to the app), then let x402/SIWx sign through it.
 const BASE_URL = process.env.LASO_BASE_URL ?? "https://laso.finance";
-const PRIVATE_KEY = process.env.LASO_WALLET_PRIVATE_KEY;
 
-// x402 won't authorize more than this per call (safety cap). Covers the max
-// card ($1000) plus fees, in USDC (6 decimals).
+// x402 won't authorize more than this per call (covers $1000 + fees). USDC 6dp.
 const MAX_PAYMENT = parseUnits("1100", 6);
 
 export const INTL_CARD_TYPE = "Non-Reloadable International";
 export const US_CARD_TYPE = "Non-Reloadable U.S.";
 
+export type UserWallet = { id: string; address: string };
+
 export function isLasoConfigured() {
-  return !!PRIVATE_KEY;
+  // Payment comes from the user's Privy wallet, so config = a Privy server
+  // client able to authorize delegated signing.
+  return (
+    !!process.env.PRIVY_APP_SECRET &&
+    !!process.env.PRIVY_AUTHORIZATION_PRIVATE_KEY
+  );
 }
 
-// Loose fetch type — the x402/SIWx wrappers return slightly narrower fetch
-// signatures than the global `fetch`; we only call them with string URLs.
-type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
-type Clients = { siwx: FetchLike; pay: FetchLike };
-let _clients: Clients | null = null;
+// A viem account backed by the user's Privy embedded wallet. Signing is
+// performed server-side by Privy's Wallet API using the app's authorization key.
+function privyAccount(wallet: UserWallet) {
+  const privy = getPrivy();
+  return toAccount({
+    address: wallet.address as Address,
+    async signMessage({ message }) {
+      const value =
+        typeof message === "string"
+          ? message
+          : typeof message.raw === "string"
+            ? message.raw
+            : Buffer.from(message.raw).toString();
+      const { signature } = await privy.walletApi.ethereum.signMessage({
+        walletId: wallet.id,
+        message: value,
+      });
+      return signature as Hex;
+    },
+    async signTypedData(typedData) {
+      const { signature } = await privy.walletApi.ethereum.signTypedData({
+        walletId: wallet.id,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        typedData: typedData as any,
+      });
+      return signature as Hex;
+    },
+    async signTransaction() {
+      throw new Error("Laso payments do not sign raw transactions.");
+    },
+  });
+}
 
-function clients(): Clients {
-  if (_clients) return _clients;
-  if (!PRIVATE_KEY) {
-    throw new Error("LASO_WALLET_PRIVATE_KEY is not configured.");
-  }
-  const account = privateKeyToAccount(
-    (PRIVATE_KEY.startsWith("0x") ? PRIVATE_KEY : `0x${PRIVATE_KEY}`) as Hex
-  );
-  // x402-fetch expects a wallet client with public actions (a SignerWallet).
+type Clients = {
+  siwx: (input: string, init?: RequestInit) => Promise<Response>;
+  pay: (input: string, init?: RequestInit) => Promise<Response>;
+};
+const _clientsByWallet = new Map<string, Clients>();
+
+function clientsFor(wallet: UserWallet): Clients {
+  const cached = _clientsByWallet.get(wallet.id);
+  if (cached) return cached;
+
+  const account = privyAccount(wallet);
   const walletClient = createWalletClient({
     account,
     chain: base,
@@ -49,35 +87,38 @@ function clients(): Clients {
   }).extend(publicActions);
 
   const built: Clients = {
-    siwx: wrapFetchWithSIWx(fetch, account) as FetchLike,
-    // Cast bridges a viem version skew between x402's bundled types and ours.
+    siwx: wrapFetchWithSIWx(fetch, account) as Clients["siwx"],
     pay: wrapFetchWithPayment(
       fetch,
       walletClient as unknown as Parameters<typeof wrapFetchWithPayment>[1],
       MAX_PAYMENT
-    ) as FetchLike,
+    ) as Clients["pay"],
   };
-  _clients = built;
+  _clientsByWallet.set(wallet.id, built);
   return built;
 }
 
-// Cached Laso id_token (Bearer for free authenticated routes).
-let _token: { value: string; expiresAt: number } | null = null;
+// Per-user Laso id_token (each user's wallet signs in, so tokens are per wallet).
+const _tokenByWallet = new Map<string, { value: string; expiresAt: number }>();
 
-async function idToken(): Promise<string> {
-  if (_token && _token.expiresAt > Date.now() + 30_000) return _token.value;
-  const res = await clients().siwx(`${BASE_URL}/auth`);
+async function idTokenFor(wallet: UserWallet): Promise<string> {
+  const cached = _tokenByWallet.get(wallet.id);
+  if (cached && cached.expiresAt > Date.now() + 30_000) return cached.value;
+  const res = await clientsFor(wallet).siwx(`${BASE_URL}/auth`);
   if (!res.ok) throw new Error(`Laso /auth failed: ${res.status}`);
   const data = await res.json();
   const token = data?.auth?.id_token as string;
   const expiresIn = Number(data?.auth?.expires_in ?? 3600);
   if (!token) throw new Error("Laso /auth returned no id_token");
-  _token = { value: token, expiresAt: Date.now() + expiresIn * 1000 };
+  _tokenByWallet.set(wallet.id, {
+    value: token,
+    expiresAt: Date.now() + expiresIn * 1000,
+  });
   return token;
 }
 
-async function bearer(path: string, init?: RequestInit) {
-  const token = await idToken();
+async function bearer(wallet: UserWallet, path: string, init?: RequestInit) {
+  const token = await idTokenFor(wallet);
   const res = await fetch(`${BASE_URL}${path}`, {
     ...init,
     headers: {
@@ -94,51 +135,49 @@ async function bearer(path: string, init?: RequestInit) {
   return res.json();
 }
 
-/** Order an international (non-reloadable) prepaid card. Paid via x402. */
-export async function orderIntlCard(amount: number) {
-  const res = await clients().pay(
-    `${BASE_URL}/order-intl-card?amount=${encodeURIComponent(amount)}`
-  );
+async function paid(wallet: UserWallet, path: string) {
+  const res = await clientsFor(wallet).pay(`${BASE_URL}${path}`);
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    throw new Error(`Laso order-intl-card failed ${res.status}: ${text}`);
+    throw new Error(`Laso ${path} failed ${res.status}: ${text}`);
   }
   return res.json();
 }
 
-/** Order a U.S. prepaid card (instant, ~10s). Paid via x402. */
-export async function orderUsCard(amount: number) {
-  const res = await clients().pay(
-    `${BASE_URL}/get-card?amount=${encodeURIComponent(amount)}`
-  );
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`Laso get-card failed ${res.status}: ${text}`);
-  }
-  return res.json();
+/** Order an international (non-reloadable) prepaid card, paid from the user's wallet. */
+export function orderIntlCard(wallet: UserWallet, amount: number) {
+  return paid(wallet, `/order-intl-card?amount=${encodeURIComponent(amount)}`);
 }
 
-/** Card details + available balance. cardType selects U.S. vs International. */
-export async function getCardData(cardType: string, cardId?: string) {
+/** Order a U.S. prepaid card (ready in ~10s), paid from the user's wallet. */
+export function orderUsCard(wallet: UserWallet, amount: number) {
+  return paid(wallet, `/get-card?amount=${encodeURIComponent(amount)}`);
+}
+
+/** Card details + available balance for the user. */
+export function getCardData(wallet: UserWallet, cardType: string, cardId?: string) {
   const params = new URLSearchParams({ card_type: cardType });
   if (cardId) params.set("card_id", cardId);
-  return bearer(`/get-card-data?${params.toString()}`);
+  return bearer(wallet, `/get-card-data?${params.toString()}`);
 }
 
-/** Laso account balance (credited refunds, leftover funds). */
-export async function getAccountBalance() {
-  return bearer(`/get-account-balance`);
+export function getAccountBalance(wallet: UserWallet) {
+  return bearer(wallet, `/get-account-balance`);
 }
 
-export async function cancelIntlOrder(cardId: string) {
-  return bearer(`/cancel-intl-order`, {
+export function cancelIntlOrder(wallet: UserWallet, cardId: string) {
+  return bearer(wallet, `/cancel-intl-order`, {
     method: "POST",
     body: JSON.stringify({ card_id: cardId }),
   });
 }
 
-export async function refreshCardData(cardId: string, cardType: string) {
-  return bearer(`/refresh-card-data`, {
+export function refreshCardData(
+  wallet: UserWallet,
+  cardId: string,
+  cardType: string
+) {
+  return bearer(wallet, `/refresh-card-data`, {
     method: "POST",
     body: JSON.stringify({ card_id: cardId, card_type: cardType }),
   });

@@ -15,25 +15,26 @@ function bearer(req: NextRequest) {
   return h.startsWith("Bearer ") ? h.slice(7) : null;
 }
 
-// Every route requires a logged-in Inflow user — ordering spends the shared
-// app wallet, so it must not be open to anonymous callers.
-async function requireUser(req: NextRequest) {
+// Every route resolves the caller's own Privy embedded wallet — cards are paid
+// from that wallet, so the request must be from an authenticated user.
+async function requireWallet(req: NextRequest) {
   const token = bearer(req);
   if (!token) return null;
   return getEmbeddedWallet(token);
 }
 
-/** Lists the app's cards (US + international) and the Laso account balance. */
+/** Lists the user's cards (US + international) and their Laso account balance. */
 export async function GET(req: NextRequest) {
   if (!isLasoConfigured()) return NextResponse.json({ configured: false });
-  if (!(await requireUser(req))) {
+  const wallet = await requireWallet(req);
+  if (!wallet) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   try {
     const [intl, us, balance] = await Promise.allSettled([
-      getCardData(INTL_CARD_TYPE),
-      getCardData(US_CARD_TYPE),
-      getAccountBalance(),
+      getCardData(wallet, INTL_CARD_TYPE),
+      getCardData(wallet, US_CARD_TYPE),
+      getAccountBalance(wallet),
     ]);
     return NextResponse.json({
       configured: true,
@@ -52,7 +53,8 @@ export async function POST(req: NextRequest) {
   if (!isLasoConfigured()) {
     return NextResponse.json({ error: "Cards are not configured" }, { status: 503 });
   }
-  if (!(await requireUser(req))) {
+  const wallet = await requireWallet(req);
+  if (!wallet) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -74,7 +76,9 @@ export async function POST(req: NextRequest) {
 
   try {
     const result =
-      type === "intl" ? await orderIntlCard(amount) : await orderUsCard(amount);
+      type === "intl"
+        ? await orderIntlCard(wallet, amount)
+        : await orderUsCard(wallet, amount);
     return NextResponse.json({ ok: true, result });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Order failed";

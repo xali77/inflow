@@ -16,7 +16,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Cards are not configured" }, { status: 503 });
   }
   const token = bearer(req);
-  if (!token || !(await getEmbeddedWallet(token))) {
+  const wallet = token ? await getEmbeddedWallet(token) : null;
+  if (!wallet) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -32,9 +33,13 @@ export async function POST(req: NextRequest) {
 
   try {
     if (body.action === "cancel") {
-      return NextResponse.json({ ok: true, result: await cancelIntlOrder(body.card_id) });
+      return NextResponse.json({
+        ok: true,
+        result: await cancelIntlOrder(wallet, body.card_id),
+      });
     }
     const result = await refreshCardData(
+      wallet,
       body.card_id,
       body.card_type ?? "Non-Reloadable International"
     );

@@ -6,10 +6,8 @@ import { encodeFunctionData, erc20Abi, parseUnits } from "viem";
 import { defaultChain } from "@/lib/chains";
 import { getUsdcAddress, USDC_DECIMALS } from "@/lib/usdc";
 import type { Schedule } from "@/lib/schedules";
-import Sheet from "./sheet";
 
-// Inlined here (rather than imported from lib/schedules) so this client
-// component doesn't pull the Node-only store module into the browser bundle.
+// Inlined so this client component doesn't pull the Node-only store module in.
 const DAY = 86_400_000;
 function computeNextRun(from: Date, c: Schedule["cadence"], custom?: number): string {
   const days =
@@ -27,19 +25,16 @@ const cadenceLabel = (s: Schedule) =>
         : `Every ${s.intervalDays ?? 30} days`;
 
 const fmtDate = (iso: string) =>
-  new Date(iso).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
-
+  new Date(iso).toLocaleDateString(undefined, { day: "numeric", month: "short" });
 const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 
-export default function ScheduledModal({
-  open,
-  onClose,
+export default function ScheduledList({
   address,
+  reloadSignal,
   onChange,
 }: {
-  open: boolean;
-  onClose: () => void;
   address?: string;
+  reloadSignal?: number;
   onChange?: () => void;
 }) {
   const { sendTransaction } = useSendTransaction();
@@ -59,11 +54,10 @@ export default function ScheduledModal({
   }, [address]);
 
   useEffect(() => {
-    if (!open) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setNow(Date.now());
     load();
-  }, [open, load]);
+  }, [load, reloadSignal]);
 
   const patch = useCallback(
     async (id: string, body: Partial<Schedule>) => {
@@ -87,7 +81,6 @@ export default function ScheduledModal({
     [load, onChange]
   );
 
-  // Execute a due payment from the user's wallet, then advance the schedule.
   const runNow = useCallback(
     async (s: Schedule) => {
       const usdc = getUsdcAddress();
@@ -109,17 +102,13 @@ export default function ScheduledModal({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ from: address, to: s.to, amount: s.amount.toFixed(2), hash }),
         }).catch(() => {});
-
-        // Advance: one-time deactivates; recurring rolls to the next interval.
-        const now = new Date();
+        const at = new Date();
         await patch(s.id, {
           runs: s.runs + 1,
-          last_run: now.toISOString(),
+          last_run: at.toISOString(),
           active: s.cadence !== "once",
           next_run:
-            s.cadence === "once"
-              ? s.next_run
-              : computeNextRun(now, s.cadence, s.intervalDays),
+            s.cadence === "once" ? s.next_run : computeNextRun(at, s.cadence, s.intervalDays),
         });
       } catch (e) {
         setError(e instanceof Error ? e.message : "Payment failed");
@@ -153,26 +142,33 @@ export default function ScheduledModal({
   const isDue = (s: Schedule) => s.active && new Date(s.next_run).getTime() <= now;
 
   return (
-    <Sheet open={open} onClose={onClose} title="Scheduled payments">
+    <section className="card p-5">
+      <div className="mb-3 flex items-center justify-between">
+        <p className="eyebrow">Scheduled payments</p>
+        {schedules.length > 0 && (
+          <span className="text-ink-soft text-xs">{schedules.length}</span>
+        )}
+      </div>
+
       {error && <p className="mb-3 text-sm text-red-400">{error}</p>}
+
       {schedules.length === 0 ? (
-        <p className="text-ink-soft py-6 text-center text-sm">
-          No scheduled payments yet. Tap Send → Schedule to set one up.
+        <p className="text-ink-soft text-sm">
+          None yet. Tap <span className="text-ink">Schedule</span> to set up a recurring or
+          future payment.
         </p>
       ) : (
         <div className="flex flex-col gap-3">
           {schedules.map((s) => (
             <div
               key={s.id}
-              className={`rounded-xl border p-4 ${
+              className={`rounded-xl border p-3.5 ${
                 isDue(s) ? "border-accent/40 bg-accent/5" : "border-line bg-ground"
               }`}
             >
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <p className="truncate text-sm font-medium">
-                    {s.toName ?? short(s.to)}
-                  </p>
+                  <p className="truncate text-sm font-medium">{s.toName ?? short(s.to)}</p>
                   <p className="text-ink-soft text-xs">
                     {cadenceLabel(s)}
                     {!s.active ? " · paused" : ""}
@@ -252,7 +248,7 @@ export default function ScheduledModal({
                       onClick={() => remove(s.id)}
                       className="rounded-lg border border-line px-3 py-1.5 text-xs text-red-400 hover:border-red-400/40"
                     >
-                      Cancel
+                      Delete
                     </button>
                   </div>
                 </>
@@ -261,6 +257,6 @@ export default function ScheduledModal({
           ))}
         </div>
       )}
-    </Sheet>
+    </section>
   );
 }

@@ -22,11 +22,13 @@ export default function SendSheet({
   onClose,
   address,
   onSent,
+  initialWhen = "now",
 }: {
   open: boolean;
   onClose: () => void;
   address?: string;
   onSent?: () => void;
+  initialWhen?: "now" | "schedule";
 }) {
   const { sendTransaction } = useSendTransaction();
   const [to, setTo] = useState("");
@@ -35,7 +37,13 @@ export default function SendSheet({
   const [sentHash, setSentHash] = useState<string | null>(null);
 
   // Scheduling: send now, or set up a recurring / one-time future payment.
-  const [when, setWhen] = useState<"now" | "schedule">("now");
+  const [when, setWhen] = useState<"now" | "schedule">(initialWhen);
+
+  // Open in the requested mode (Send vs Schedule) each time the sheet opens.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (open) setWhen(initialWhen);
+  }, [open, initialWhen]);
   const [cadence, setCadence] = useState<"once" | "weekly" | "monthly" | "custom">("monthly");
   const [intervalDays, setIntervalDays] = useState("30");
   const today = new Date().toISOString().slice(0, 10);
@@ -84,7 +92,7 @@ export default function SendSheet({
     setStatus({ kind: "idle" });
     setSentHash(null);
     setRecipient(null);
-    setWhen("now");
+    setWhen(initialWhen);
     setCadence("monthly");
     setIntervalDays("30");
     setStartDate(today);

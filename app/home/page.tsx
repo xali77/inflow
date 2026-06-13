@@ -10,7 +10,6 @@ import WorldIdVerify from "@/components/world-id-verify";
 import SendSheet from "@/components/send-sheet";
 import ReceiveSheet from "@/components/receive-sheet";
 import ActivityList from "@/components/activity-list";
-import GrowCard from "@/components/grow-card";
 
 function greeting() {
   const h = new Date().getHours();
@@ -136,10 +135,7 @@ export default function Home() {
             </div>
 
             <div className="flex flex-col gap-4">
-              <section
-                id="score"
-                className="card flex scroll-mt-6 flex-col items-center gap-5 p-6"
-              >
+              <section className="card flex flex-col items-center gap-5 p-6">
                 <p className="eyebrow self-start">FlowScore</p>
                 <WorldIdVerify
                   address={address}
@@ -147,9 +143,6 @@ export default function Home() {
                   onVerified={() => setVerified(true)}
                 />
               </section>
-              <div id="grow" className="scroll-mt-6">
-                <GrowCard address={address} />
-              </div>
             </div>
           </div>
         </main>

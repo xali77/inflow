@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { usePrivy, useDelegatedActions } from "@privy-io/react-auth";
+import { usePrivy } from "@privy-io/react-auth";
 import Sidebar from "@/components/sidebar";
 
 type DisplayCard = {
@@ -51,10 +51,8 @@ function maskPan(pan: string) {
 }
 
 export default function Cards() {
-  const { ready, authenticated, getAccessToken, user, logout } = usePrivy();
-  const { delegateWallet } = useDelegatedActions();
+  const { ready, authenticated, getAccessToken, logout } = usePrivy();
   const router = useRouter();
-  const address = user?.wallet?.address;
 
   const [configured, setConfigured] = useState<boolean | null>(null);
   const [cards, setCards] = useState<DisplayCard[]>([]);
@@ -140,17 +138,6 @@ export default function Cards() {
     }
   }, [amount, type, authHeader, load]);
 
-  // One-time: delegate the embedded wallet so the backend can pay x402 from it.
-  const enablePayments = useCallback(async () => {
-    if (!address) return;
-    setError(null);
-    try {
-      await delegateWallet({ address, chainType: "ethereum" });
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not enable payments");
-    }
-  }, [address, delegateWallet]);
-
   const refresh = useCallback(
     async (card: DisplayCard, action: "refresh" | "cancel") => {
       setError(null);
@@ -235,17 +222,9 @@ export default function Cards() {
           )}
 
           <div className="card p-5">
-            <div className="mb-3 flex items-center justify-between">
-              <p className="text-sm font-medium">Order a card</p>
-              <button
-                onClick={enablePayments}
-                className="text-ink-soft text-xs transition-colors hover:text-ink"
-              >
-                Enable card payments
-              </button>
-            </div>
+            <p className="mb-1 text-sm font-medium">Order a card</p>
             <p className="text-ink-soft mb-3 text-xs">
-              Paid from your own wallet — enable card payments once to authorize.
+              Paid from your own wallet. Enable Grow once to authorize payments.
             </p>
             <div className="mb-3 grid grid-cols-2 gap-3">
               {(["intl", "us"] as const).map((t) => (

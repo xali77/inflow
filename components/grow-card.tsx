@@ -4,9 +4,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   usePrivy,
   useFundWallet,
-  useDelegatedActions,
+  useSessionSigners,
 } from "@privy-io/react-auth";
 import Sheet from "./sheet";
+
+const PRIVY_SIGNER_ID = process.env.NEXT_PUBLIC_PRIVY_SIGNER_ID;
 
 type Vault = { name: string; provider: string; user_apy: number | null };
 type Position = { assets_in_vault: string; total_deposited: string };
@@ -16,17 +18,20 @@ type GrowData =
 
 const SECONDS_PER_YEAR = 365 * 24 * 60 * 60;
 
-// user_apy may arrive as a fraction (0.05) or a percent (5). Normalize to a
-// fraction for math and a percent for display.
-function apyFraction(apy: number | null) {
-  if (!apy) return 0;
-  return apy > 1 ? apy / 100 : apy;
+// Normalize Privy's user_apy to a percent. It can arrive as basis points
+// (500 = 5%), a plain percent (5 = 5%), or a fraction (0.05 = 5%).
+function apyToPercent(apy: number | null): number {
+  if (!apy || apy <= 0) return 0;
+  let pct = apy;
+  if (apy >= 100) pct = apy / 100; // basis points
+  else if (apy <= 1) pct = apy * 100; // fraction
+  return Math.min(pct, 100); // sanity cap
 }
 
 export default function GrowCard({ address }: { address?: string }) {
   const { getAccessToken } = usePrivy();
   const { fundWallet } = useFundWallet();
-  const { delegateWallet } = useDelegatedActions();
+  const { addSessionSigners } = useSessionSigners();
 
   const [data, setData] = useState<GrowData | null>(null);
   const [mode, setMode] = useState<"deposit" | "withdraw" | null>(null);
@@ -63,7 +68,7 @@ export default function GrowCard({ address }: { address?: string }) {
       const principal = Number(d.position.assets_in_vault) || 0;
       baseRef.current = {
         principal,
-        rate: apyFraction(d.vault.user_apy),
+        rate: apyToPercent(d.vault.user_apy) / 100,
         at: Date.now(),
       };
       setProjected(principal);
@@ -120,15 +125,24 @@ export default function GrowCard({ address }: { address?: string }) {
     }
   }, [mode, amount, getAccessToken, fetchGrow, apply]);
 
+  // Grant the app's server signer session access to this TEE embedded wallet,
+  // so the backend can execute Grow deposits/withdrawals on the user's behalf.
   const enableGrow = useCallback(async () => {
     if (!address) return;
     setError(null);
+    if (!PRIVY_SIGNER_ID) {
+      setError("Set NEXT_PUBLIC_PRIVY_SIGNER_ID to enable Grow.");
+      return;
+    }
     try {
-      await delegateWallet({ address, chainType: "ethereum" });
+      await addSessionSigners({
+        address,
+        signers: [{ signerId: PRIVY_SIGNER_ID }],
+      });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not enable Grow");
     }
-  }, [address, delegateWallet]);
+  }, [address, addSessionSigners]);
 
   // Hidden until the position check resolves.
   if (!data) return null;
@@ -144,7 +158,7 @@ export default function GrowCard({ address }: { address?: string }) {
     );
   }
 
-  const apyPct = (apyFraction(data.vault.user_apy) * 100).toFixed(2);
+  const apyPct = apyToPercent(data.vault.user_apy).toFixed(2);
   const principal = Number(data.position.assets_in_vault) || 0;
 
   return (

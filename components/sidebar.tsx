@@ -10,8 +10,7 @@ type NavItem = { label: string; href: string };
 const NAV: NavItem[] = [
   { label: "Home", href: "/home" },
   { label: "Card", href: "/cards" },
-  { label: "Grow", href: "/home#grow" },
-  { label: "Score", href: "/home#score" },
+  { label: "Grow", href: "/grow" },
 ];
 
 export default function Sidebar() {

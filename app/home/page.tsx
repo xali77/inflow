@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { usePrivy } from "@privy-io/react-auth";
 import Balance from "@/components/balance";
+import FlowScoreRing from "@/components/flow-score-ring";
 
 export default function Home() {
   const { ready, authenticated, logout, user } = usePrivy();
@@ -35,6 +36,7 @@ export default function Home() {
 
       <section className="flex flex-col items-center gap-8 pt-8">
         <Balance address={user?.wallet?.address} />
+        <FlowScoreRing verified={false} />
       </section>
     </main>
   );

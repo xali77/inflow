@@ -1,88 +1,109 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import {
+  Area,
+  AreaChart,
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
+import type { Analytics, UserRow } from "@/lib/analytics";
 import type { ScoringConfig } from "@/lib/scoring";
 
-type StoredEvent = {
-  type: string;
-  address?: string;
-  amount_usd?: number;
-  created_at: string;
-  payload?: Record<string, unknown>;
-};
-type Stats = {
-  total: number;
-  users: number;
-  volumeUsd: number;
-  byType: Record<string, number>;
-  volumeByType: Record<string, number>;
-};
-type AdminData = { stats: Stats; events: StoredEvent[]; config: ScoringConfig };
+type AdminData = Analytics & { config: ScoringConfig };
 
-const short = (a?: string) => (a ? `${a.slice(0, 6)}…${a.slice(-4)}` : "—");
+const ACCENT = "#E8A33D";
+const GRID = "#2A241F";
+const AXIS = "#9B9189";
+
 const money = (n: number) =>
-  n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const ago = (iso: string) => {
-  const m = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
-  if (m < 1) return "just now";
-  if (m < 60) return `${m}m ago`;
-  const h = Math.floor(m / 60);
-  return h < 24 ? `${h}h ago` : `${Math.floor(h / 24)}d ago`;
+  n >= 1000
+    ? `$${(n / 1000).toFixed(1)}k`
+    : `$${n.toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
+const short = (a?: string) => (a ? `${a.slice(0, 6)}…${a.slice(-4)}` : "—");
+const scoreColor = (s: number) =>
+  s >= 70 ? ACCENT : s >= 45 ? "#c79a5e" : AXIS;
+
+const tooltipStyle = {
+  background: "#1D1916",
+  border: `1px solid ${GRID}`,
+  borderRadius: 12,
+  color: "#F4EFE9",
+  fontSize: 12,
 };
 
-const FLOW_SCORE_KEYS: (keyof ScoringConfig["flowScore"])[] = [
-  "flowlines",
-  "liquidity",
-  "repayment",
-  "integrity",
-  "trading",
+const FS_KEYS: (keyof ScoringConfig["flowScore"])[] = [
+  "flowlines", "liquidity", "repayment", "integrity", "trading",
 ];
-const FLOW_LINE_KEYS: (keyof ScoringConfig["flowLine"])[] = [
-  "consistency",
-  "longevity",
-  "volume",
-  "growth",
+const FL_KEYS: (keyof ScoringConfig["flowLine"])[] = [
+  "consistency", "longevity", "volume", "growth",
 ];
+
+function Panel({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="card p-5">
+      <p className="mb-4 text-sm font-medium">{title}</p>
+      {children}
+    </div>
+  );
+}
 
 export default function Admin() {
   const [data, setData] = useState<AdminData | null>(null);
   const [config, setConfig] = useState<ScoringConfig | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
+  const [busy, setBusy] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const res = await fetch("/api/admin");
-    return (await res.json()) as AdminData;
+    const d = (await res.json()) as AdminData;
+    setData(d);
+    setConfig(d.config);
   }, []);
 
   useEffect(() => {
     let cancelled = false;
-    load().then((d) => {
-      if (cancelled) return;
-      setData(d);
-      setConfig(d.config);
-    });
+    fetch("/api/admin")
+      .then((r) => r.json())
+      .then((d: AdminData) => {
+        if (cancelled) return;
+        setData(d);
+        setConfig(d.config);
+      });
     return () => {
       cancelled = true;
     };
+  }, []);
+
+  const seed = useCallback(async () => {
+    setBusy("seed");
+    try {
+      await fetch("/api/admin/seed", { method: "POST", body: JSON.stringify({ clear: true }) });
+      await load();
+    } finally {
+      setBusy(null);
+    }
   }, [load]);
 
-  const saveConfig = useCallback(async () => {
+  const saveWeights = useCallback(async () => {
     if (!config) return;
-    setSaving(true);
-    setSaved(false);
+    setBusy("save");
     try {
       await fetch("/api/admin/scoring", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(config),
       });
-      setSaved(true);
-      setTimeout(() => setSaved(false), 2000);
+      await load(); // recompute scores with new weights
     } finally {
-      setSaving(false);
+      setBusy(null);
     }
-  }, [config]);
+  }, [config, load]);
 
   if (!data || !config) {
     return (
@@ -92,142 +113,238 @@ export default function Admin() {
     );
   }
 
-  const { stats, events } = data;
+  const { stats, timeseries, byType, byDomain, byCountry, corridors, scoreDistribution, users } = data;
+
+  const statCards = [
+    { label: "Users", value: stats.users.toLocaleString() },
+    { label: "Verified", value: `${stats.verifiedPct}%` },
+    { label: "Avg FlowScore", value: stats.avgFlowScore },
+    { label: "FlowLines", value: stats.flowLines.toLocaleString() },
+    { label: "Remittance vol", value: money(stats.remittanceVolume) },
+    { label: "Total volume", value: money(stats.totalVolume) },
+  ];
 
   return (
     <main className="mx-auto min-h-screen max-w-6xl px-6 py-8">
-      <h1 className="mb-1 text-2xl font-semibold tracking-tight">Flows · Admin</h1>
-      <p className="text-ink-soft mb-6 text-sm">
-        Behavior analytics and FlowScore tuning. Internal — ungated.
-      </p>
+      <div className="mb-6 flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Flows · Admin</h1>
+          <p className="text-ink-soft text-sm">
+            {stats.totalEvents.toLocaleString()} events tracked · FlowScore engine live
+          </p>
+        </div>
+        <button
+          onClick={seed}
+          disabled={busy !== null}
+          className="rounded-full border border-line px-4 py-2 text-xs text-ink-soft transition-colors hover:text-ink disabled:opacity-50"
+        >
+          {busy === "seed" ? "Seeding…" : "Seed demo data"}
+        </button>
+      </div>
 
       {/* Stat cards */}
-      <div className="mb-6 grid grid-cols-2 gap-4 sm:grid-cols-3">
-        {[
-          { label: "Events tracked", value: stats.total.toLocaleString() },
-          { label: "Active users", value: stats.users.toLocaleString() },
-          { label: "Total volume", value: `$${money(stats.volumeUsd)}` },
-        ].map((s) => (
-          <div key={s.label} className="card p-5">
+      <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+        {statCards.map((s) => (
+          <div key={s.label} className="card p-4">
             <p className="eyebrow">{s.label}</p>
-            <p className="mt-2 text-2xl font-semibold tabular-nums">{s.value}</p>
+            <p className="mt-1.5 text-xl font-semibold tabular-nums">{s.value}</p>
           </div>
         ))}
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
-        {/* Scoring weights editor */}
-        <div className="card p-5">
-          <p className="mb-1 text-sm font-medium">Scoring weights</p>
-          <p className="text-ink-soft mb-4 text-xs">
-            Tune how each behavior affects scores. Saved to config (live engine
-            reads these).
-          </p>
+        <Panel title="Volume over time">
+          <ResponsiveContainer width="100%" height={200}>
+            <AreaChart data={timeseries}>
+              <defs>
+                <linearGradient id="vol" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={ACCENT} stopOpacity={0.5} />
+                  <stop offset="100%" stopColor={ACCENT} stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid stroke={GRID} vertical={false} />
+              <XAxis dataKey="date" tick={{ fill: AXIS, fontSize: 10 }} tickFormatter={(d) => d.slice(5)} minTickGap={28} />
+              <YAxis tick={{ fill: AXIS, fontSize: 10 }} tickFormatter={(v) => money(v)} width={44} />
+              <Tooltip contentStyle={tooltipStyle} formatter={(value) => money(Number(value))} />
+              <Area type="monotone" dataKey="volume" stroke={ACCENT} fill="url(#vol)" strokeWidth={2} />
+            </AreaChart>
+          </ResponsiveContainer>
+        </Panel>
 
-          <p className="eyebrow mb-2">FlowScore</p>
-          <div className="mb-5 flex flex-col gap-2">
-            {FLOW_SCORE_KEYS.map((k) => (
-              <label key={k} className="flex items-center justify-between gap-3">
-                <span className="text-sm capitalize">{k}</span>
-                <input
-                  type="number"
-                  min={0}
-                  max={100}
-                  value={config.flowScore[k]}
-                  onChange={(e) =>
-                    setConfig({
-                      ...config,
-                      flowScore: { ...config.flowScore, [k]: Number(e.target.value) },
-                    })
-                  }
-                  className="w-20 rounded-lg border border-line bg-ground px-3 py-1.5 text-right text-sm tabular-nums focus:outline-none"
-                />
-              </label>
-            ))}
-          </div>
-
-          <p className="eyebrow mb-2">FlowLine</p>
-          <div className="flex flex-col gap-2">
-            {FLOW_LINE_KEYS.map((k) => (
-              <label key={k} className="flex items-center justify-between gap-3">
-                <span className="text-sm capitalize">{k}</span>
-                <input
-                  type="number"
-                  min={0}
-                  max={100}
-                  value={config.flowLine[k]}
-                  onChange={(e) =>
-                    setConfig({
-                      ...config,
-                      flowLine: { ...config.flowLine, [k]: Number(e.target.value) },
-                    })
-                  }
-                  className="w-20 rounded-lg border border-line bg-ground px-3 py-1.5 text-right text-sm tabular-nums focus:outline-none"
-                />
-              </label>
-            ))}
-          </div>
-
-          <button
-            onClick={saveConfig}
-            disabled={saving}
-            className="bg-ink text-ground mt-5 w-full rounded-xl py-2.5 text-sm font-medium transition-opacity hover:opacity-90 disabled:opacity-50"
-          >
-            {saving ? "Saving…" : saved ? "Saved ✓" : "Save weights"}
-          </button>
-        </div>
-
-        {/* Events by type + feed */}
-        <div className="flex flex-col gap-4">
-          <div className="card p-5">
-            <p className="mb-3 text-sm font-medium">Events by type</p>
-            {Object.keys(stats.byType).length === 0 ? (
-              <p className="text-ink-soft text-sm">No events yet.</p>
-            ) : (
-              <div className="flex flex-col gap-1.5">
-                {Object.entries(stats.byType)
-                  .sort((a, b) => b[1] - a[1])
-                  .map(([type, count]) => (
-                    <div key={type} className="flex items-center justify-between text-sm">
-                      <span className="text-ink-soft">{type}</span>
-                      <span className="tabular-nums">
-                        {count}
-                        {stats.volumeByType[type]
-                          ? `  ·  $${money(stats.volumeByType[type])}`
-                          : ""}
-                      </span>
-                    </div>
-                  ))}
-              </div>
-            )}
-          </div>
-
-          <div className="card p-5">
-            <p className="mb-3 text-sm font-medium">Recent activity</p>
-            {events.length === 0 ? (
-              <p className="text-ink-soft text-sm">No events yet.</p>
-            ) : (
-              <div className="flex max-h-96 flex-col gap-2 overflow-y-auto">
-                {events.map((e, i) => (
-                  <div
-                    key={`${e.created_at}-${i}`}
-                    className="flex items-center justify-between gap-3 border-b border-line pb-2 text-xs last:border-0"
-                  >
-                    <div className="min-w-0">
-                      <p className="truncate">{e.type}</p>
-                      <p className="text-ink-soft truncate">
-                        {short(e.address)} · {ago(e.created_at)}
-                      </p>
-                    </div>
-                    {e.amount_usd ? (
-                      <span className="shrink-0 tabular-nums">${money(Number(e.amount_usd))}</span>
-                    ) : null}
-                  </div>
+        <Panel title="FlowScore distribution">
+          <ResponsiveContainer width="100%" height={200}>
+            <BarChart data={scoreDistribution}>
+              <CartesianGrid stroke={GRID} vertical={false} />
+              <XAxis dataKey="bucket" tick={{ fill: AXIS, fontSize: 10 }} />
+              <YAxis tick={{ fill: AXIS, fontSize: 10 }} width={28} allowDecimals={false} />
+              <Tooltip contentStyle={tooltipStyle} />
+              <Bar dataKey="count" radius={[4, 4, 0, 0]}>
+                {scoreDistribution.map((_, i) => (
+                  <Cell key={i} fill={ACCENT} fillOpacity={0.4 + i * 0.15} />
                 ))}
-              </div>
-            )}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </Panel>
+
+        <Panel title="Events by type">
+          <ResponsiveContainer width="100%" height={Math.max(byType.length * 30, 120)}>
+            <BarChart data={byType} layout="vertical" margin={{ left: 24 }}>
+              <CartesianGrid stroke={GRID} horizontal={false} />
+              <XAxis type="number" tick={{ fill: AXIS, fontSize: 10 }} allowDecimals={false} />
+              <YAxis type="category" dataKey="type" tick={{ fill: AXIS, fontSize: 10 }} width={130} />
+              <Tooltip contentStyle={tooltipStyle} />
+              <Bar dataKey="count" fill={ACCENT} radius={[0, 4, 4, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </Panel>
+
+        <Panel title="Volume by domain">
+          <ResponsiveContainer width="100%" height={Math.max(byDomain.length * 38, 120)}>
+            <BarChart data={byDomain} layout="vertical" margin={{ left: 12 }}>
+              <CartesianGrid stroke={GRID} horizontal={false} />
+              <XAxis type="number" tick={{ fill: AXIS, fontSize: 10 }} tickFormatter={(v) => money(v)} />
+              <YAxis type="category" dataKey="domain" tick={{ fill: AXIS, fontSize: 11 }} width={90} />
+              <Tooltip contentStyle={tooltipStyle} formatter={(value) => money(Number(value))} />
+              <Bar dataKey="volume" fill={ACCENT} radius={[0, 4, 4, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </Panel>
+      </div>
+
+      {/* Corridors + countries */}
+      <div className="mt-4 grid gap-4 lg:grid-cols-2">
+        <Panel title="Top remittance corridors">
+          {corridors.length === 0 ? (
+            <p className="text-ink-soft text-sm">No data yet — seed demo data.</p>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {corridors.map((c) => (
+                <div key={c.corridor} className="flex items-center justify-between text-sm">
+                  <span>{c.corridor}</span>
+                  <span className="text-ink-soft tabular-nums">
+                    {money(c.volume)} · {c.count} txns
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </Panel>
+        <Panel title="By receiver country">
+          {byCountry.length === 0 ? (
+            <p className="text-ink-soft text-sm">No data yet.</p>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {byCountry.slice(0, 8).map((c) => (
+                <div key={c.country} className="flex items-center justify-between text-sm">
+                  <span>{c.country}</span>
+                  <span className="text-ink-soft tabular-nums">
+                    {money(c.volume)} · {c.users} users
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </Panel>
+      </div>
+
+      {/* Users table */}
+      <div className="card mt-4 p-5">
+        <p className="mb-4 text-sm font-medium">Users by FlowScore</p>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-ink-soft border-b border-line text-left text-xs">
+                <th className="pb-2 pr-3 font-normal">User</th>
+                <th className="pb-2 pr-3 font-normal">Country</th>
+                <th className="pb-2 pr-3 font-normal">Role</th>
+                <th className="pb-2 pr-3 text-right font-normal">FlowScore</th>
+                <th className="pb-2 pr-3 text-right font-normal">Received</th>
+                <th className="pb-2 pr-3 text-right font-normal">FlowLines</th>
+                <th className="pb-2 text-right font-normal">Verified</th>
+              </tr>
+            </thead>
+            <tbody>
+              {users.slice(0, 40).map((u: UserRow) => (
+                <tr key={u.address} className="border-b border-line/60">
+                  <td className="py-2 pr-3">
+                    <span className="block">{u.name ?? short(u.address)}</span>
+                    <span className="text-ink-soft text-xs">{short(u.address)}</span>
+                  </td>
+                  <td className="py-2 pr-3">{u.country ?? "—"}</td>
+                  <td className="text-ink-soft py-2 pr-3">{u.role ?? "—"}</td>
+                  <td className="py-2 pr-3 text-right">
+                    <span className="font-medium tabular-nums" style={{ color: scoreColor(u.flowScore) }}>
+                      {u.flowScore}
+                    </span>
+                  </td>
+                  <td className="py-2 pr-3 text-right tabular-nums">{money(u.received)}</td>
+                  <td className="py-2 pr-3 text-right tabular-nums">{u.flowLines}</td>
+                  <td className="py-2 text-right">{u.verified ? "✓" : "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {users.length === 0 && (
+            <p className="text-ink-soft py-6 text-center text-sm">
+              No users yet — click “Seed demo data”.
+            </p>
+          )}
+        </div>
+      </div>
+
+      {/* Scoring weights */}
+      <div className="card mt-4 p-5">
+        <p className="mb-1 text-sm font-medium">Scoring weights</p>
+        <p className="text-ink-soft mb-4 text-xs">
+          Tune how each behavior affects scores, then save — the engine recomputes
+          every FlowScore above.
+        </p>
+        <div className="grid gap-6 sm:grid-cols-2">
+          <div>
+            <p className="eyebrow mb-2">FlowScore</p>
+            <div className="flex flex-col gap-2">
+              {FS_KEYS.map((k) => (
+                <label key={k} className="flex items-center justify-between gap-3">
+                  <span className="text-sm capitalize">{k}</span>
+                  <input
+                    type="number" min={0} max={100}
+                    value={config.flowScore[k]}
+                    onChange={(e) =>
+                      setConfig({ ...config, flowScore: { ...config.flowScore, [k]: Number(e.target.value) } })
+                    }
+                    className="w-20 rounded-lg border border-line bg-ground px-3 py-1.5 text-right text-sm tabular-nums focus:outline-none"
+                  />
+                </label>
+              ))}
+            </div>
+          </div>
+          <div>
+            <p className="eyebrow mb-2">FlowLine</p>
+            <div className="flex flex-col gap-2">
+              {FL_KEYS.map((k) => (
+                <label key={k} className="flex items-center justify-between gap-3">
+                  <span className="text-sm capitalize">{k}</span>
+                  <input
+                    type="number" min={0} max={100}
+                    value={config.flowLine[k]}
+                    onChange={(e) =>
+                      setConfig({ ...config, flowLine: { ...config.flowLine, [k]: Number(e.target.value) } })
+                    }
+                    className="w-20 rounded-lg border border-line bg-ground px-3 py-1.5 text-right text-sm tabular-nums focus:outline-none"
+                  />
+                </label>
+              ))}
+            </div>
           </div>
         </div>
+        <button
+          onClick={saveWeights}
+          disabled={busy !== null}
+          className="bg-ink text-ground mt-5 rounded-xl px-6 py-2.5 text-sm font-medium transition-opacity hover:opacity-90 disabled:opacity-50"
+        >
+          {busy === "save" ? "Saving & recomputing…" : "Save weights & recompute"}
+        </button>
       </div>
     </main>
   );

@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
-import { listEvents, summarize } from "@/lib/events";
+import { listEvents } from "@/lib/events";
 import { getScoringConfig } from "@/lib/scoring";
+import { computeAnalytics } from "@/lib/analytics";
 
-// Admin dashboard data: recent events, aggregate stats, and current scoring
-// weights. Ungated for the hackathon — do not expose publicly in production.
+// Admin dashboard data: full analytics + FlowScores computed from the event log
+// using the current scoring weights. Ungated for the hackathon.
 export async function GET() {
-  const events = await listEvents(300);
-  const stats = summarize(events);
-  const config = await getScoringConfig();
-  return NextResponse.json({ stats, events: events.slice(0, 60), config });
+  const [events, config] = await Promise.all([listEvents(5000), getScoringConfig()]);
+  const analytics = computeAnalytics(events, config);
+  return NextResponse.json({ ...analytics, config });
 }

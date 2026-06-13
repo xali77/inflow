@@ -69,6 +69,58 @@ export async function logEvent(e: AppEvent): Promise<void> {
   }
 }
 
+/** Bulk-append events (used for seeding). created_at may be backdated. */
+export async function logEvents(
+  events: (AppEvent & { created_at?: string })[]
+): Promise<void> {
+  if (events.length === 0) return;
+  try {
+    if (useSupabase) {
+      const rows = events.map((e) => ({
+        type: e.type,
+        address: e.address ? e.address.toLowerCase() : null,
+        user_id: e.user_id ?? null,
+        amount_usd: e.amount_usd ?? null,
+        payload: e.payload ?? {},
+        ...(e.created_at ? { created_at: e.created_at } : {}),
+      }));
+      for (let i = 0; i < rows.length; i += 200) {
+        await fetch(restUrl("events"), {
+          method: "POST",
+          headers: sbHeaders(),
+          body: JSON.stringify(rows.slice(i, i + 200)),
+        });
+      }
+    } else {
+      const store = getStore();
+      const log = (await store.get<StoredEvent[]>("events:log")) ?? [];
+      const mapped = events.map((e) => ({
+        ...e,
+        created_at: e.created_at ?? new Date().toISOString(),
+      }));
+      await store.set("events:log", [...mapped, ...log].slice(0, 5000));
+    }
+  } catch {
+    // best-effort
+  }
+}
+
+/** Deletes all events (used before reseeding). */
+export async function clearEvents(): Promise<void> {
+  try {
+    if (useSupabase) {
+      await fetch(restUrl("events?id=gt.0"), {
+        method: "DELETE",
+        headers: sbHeaders(),
+      });
+    } else {
+      await getStore().set("events:log", []);
+    }
+  } catch {
+    // best-effort
+  }
+}
+
 /** Most recent events (newest first). */
 export async function listEvents(limit = 200): Promise<StoredEvent[]> {
   try {

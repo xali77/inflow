@@ -20,14 +20,11 @@ export const arcTestnet: Chain | null =
       })
     : null;
 
-if (!arcTestnet && typeof window !== "undefined") {
-  console.warn(
-    "Arc testnet env vars (NEXT_PUBLIC_ARC_RPC_URL / NEXT_PUBLIC_ARC_CHAIN_ID) are not set; booting on Base only."
-  );
-}
-
+// Base mainnet is the primary chain — it's where Privy Earn (Morpho USDC
+// vaults) lives. Arc testnet remains an optional supported chain when its env
+// vars are present. Note: on Base, gas is paid in ETH (not USDC).
 export const supportedChains: [Chain, ...Chain[]] = arcTestnet
-  ? [arcTestnet, base]
+  ? [base, arcTestnet]
   : [base];
 
-export const defaultChain: Chain = arcTestnet ?? base;
+export const defaultChain: Chain = base;

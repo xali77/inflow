@@ -55,14 +55,14 @@ ID human verification. Senders simply never verify; receivers do.
    server-only Privy keys are for server-initiated wallet API calls (build 2).
    They must never be exposed with a `NEXT_PUBLIC_` prefix.
 
-   Arc (Circle's testnet, chain `5042002`) is the default chain; USDC is its
-   native gas token. The balance is read through the USDC ERC-20 interface
-   (6 decimals) — the same code path as Base. Get test USDC from the
-   [Circle faucet](https://faucet.circle.com); explorer at
-   [testnet.arcscan.app](https://testnet.arcscan.app). If the Arc vars are
-   empty the app boots on Base mainnet only (with a console warning). If the
-   Supabase vars are empty, persistence falls back to a local JSON file at
-   `.data/store.json` (gitignored).
+   **Base mainnet** (chain `8453`) is the default chain — it's where Privy Earn
+   (Morpho USDC vaults) lives. USDC balance is read through the USDC ERC-20
+   interface (6 decimals). Note: on Base, gas is paid in **ETH**, so the
+   embedded wallet needs a little ETH to send (or configure a Privy paymaster to
+   sponsor gas). Arc testnet stays available as a secondary chain when its
+   `NEXT_PUBLIC_ARC_*` env vars are set. If the Supabase vars are empty,
+   persistence falls back to a local JSON file at `.data/store.json`
+   (gitignored).
 
 5. **Run**
 

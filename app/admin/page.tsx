@@ -447,6 +447,41 @@ export default function Admin() {
           </p>
         </div>
 
+        {/* Lending policy — score → collateral/interest curve */}
+        <div className="mt-5 border-t border-line pt-4">
+          <p className="eyebrow mb-1">Lending policy</p>
+          <p className="text-ink-soft mb-3 text-xs">
+            Collateral the sender posts: {(config.lending.minCollateralBps / 100).toFixed(0)}% at
+            top scores → {(config.lending.maxCollateralBps / 100).toFixed(0)}% at low. Enforced
+            off-chain via signed terms, so changes apply instantly.
+          </p>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {([
+              ["Min collateral %", "minCollateralBps", 100],
+              ["Max collateral %", "maxCollateralBps", 100],
+              ["FlowScore weight %", "scoreFlowShare", 1],
+              ["Min interest %", "minInterestBps", 100],
+              ["Max interest %", "maxInterestBps", 100],
+              ["Loan duration (days)", "durationDays", 1],
+            ] as const).map(([label, key, scale]) => (
+              <label key={key} className="flex items-center justify-between gap-3">
+                <span className="text-sm">{label}</span>
+                <input
+                  type="number"
+                  value={config.lending[key] / scale}
+                  onChange={(e) =>
+                    setConfig({
+                      ...config,
+                      lending: { ...config.lending, [key]: Math.round(Number(e.target.value) * scale) },
+                    })
+                  }
+                  className="w-24 rounded-lg border border-line bg-ground px-3 py-1.5 text-right text-sm tabular-nums focus:outline-none"
+                />
+              </label>
+            ))}
+          </div>
+        </div>
+
         <button
           onClick={saveWeights}
           disabled={busy !== null}

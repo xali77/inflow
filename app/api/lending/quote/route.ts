@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { parseUnits, toHex, type Address } from "viem";
 import { getEmbeddedWallet } from "@/lib/privy";
 import { getRequest, setRequestStatus, termsFor } from "@/lib/lending";
+import { getScoringConfig } from "@/lib/scoring";
 import {
   USDC_DECIMALS,
   isFlowPoolConfigured,
@@ -43,13 +44,14 @@ export async function POST(req: NextRequest) {
   const collateral = (principal * BigInt(terms.collateralBps)) / BigInt(10000);
   const interest = (principal * BigInt(terms.interestBps)) / BigInt(10000);
   const now = Math.floor(Date.now() / 1000);
+  const durationDays = (await getScoringConfig()).lending.durationDays;
   const params = {
     receiver: request.receiver as Address,
     sender: request.sender as Address,
     principal,
     collateral,
     interest,
-    dueDate: BigInt(now + 30 * 86_400),
+    dueDate: BigInt(now + durationDays * 86_400),
     nonce: toHex(crypto.getRandomValues(new Uint8Array(32))),
     expiry: BigInt(now + 600), // sender has 10 min to submit
   };

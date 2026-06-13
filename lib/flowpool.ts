@@ -81,12 +81,17 @@ export function computeLoanTerms(
   lineScore: number,
   config: ScoringConfig
 ): LoanTerms {
-  const combined = 0.6 * senderFlowScore + 0.4 * lineScore; // 0–100
-  const full = 7500 - (combined / 100) * 2500; // 5000–7500
-  const mid = 6250; // 62.5% when sensitivity neutralizes score influence
+  const L = config.lending;
+  const flowShare = (L.scoreFlowShare ?? 60) / 100;
+  const combined = flowShare * senderFlowScore + (1 - flowShare) * lineScore; // 0–100
+  // Collateral interpolates max (low score) → min (high score).
+  const full = L.maxCollateralBps - (combined / 100) * (L.maxCollateralBps - L.minCollateralBps);
+  const mid = (L.minCollateralBps + L.maxCollateralBps) / 2; // when sensitivity neutralizes score
   const sensitivity = (config.flowLine.sensitivity ?? 50) / 100;
   const collateralBps = Math.round(mid + (full - mid) * sensitivity);
-  const interestBps = Math.round(800 + (1 - combined / 100) * 1200); // 8%–20%
+  const interestBps = Math.round(
+    L.minInterestBps + (1 - combined / 100) * (L.maxInterestBps - L.minInterestBps)
+  );
   return { collateralBps, interestBps };
 }
 

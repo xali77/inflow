@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { isAddress } from "viem";
 import { getStore } from "@/lib/store";
 import { apyForTerm, type Lock, type LockTerm } from "@/lib/locks";
+import { logEvent } from "@/lib/events";
 
 const locksKey = (address: string) => `locks:${address.toLowerCase()}`;
 const VALID_TERMS: LockTerm[] = [3, 6, 12];
@@ -56,6 +57,13 @@ export async function POST(req: NextRequest) {
   const key = locksKey(address);
   const existing = (await store.get<Lock[]>(key)) ?? [];
   await store.set(key, [lock, ...existing].slice(0, 50));
+
+  await logEvent({
+    type: "lock.created",
+    address,
+    amount_usd: amount,
+    payload: { months, apy: lock.apy, matures_at: lock.matures_at },
+  });
 
   return NextResponse.json({ lock });
 }

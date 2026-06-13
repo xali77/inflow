@@ -1,6 +1,8 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import dynamic from "next/dynamic";
+import { usePrivy } from "@privy-io/react-auth";
 import type { WidgetConfig } from "@lifi/widget";
 
 // LI.FI widget is client-only and heavy — load it lazily, never during SSR.
@@ -64,6 +66,58 @@ export default function SwapModal({
   open: boolean;
   onClose: () => void;
 }) {
+  const { getAccessToken } = usePrivy();
+  const logged = useRef<Set<string>>(new Set());
+
+  // Log completed swaps to the event store (score-bearing trading behavior).
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    let unsub = () => {};
+    import("@lifi/widget").then(({ widgetEvents, WidgetEvent }) => {
+      if (cancelled) return;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const handler = async (update: any) => {
+        try {
+          const route = update?.route ?? update;
+          const steps = route?.steps ?? [];
+          const done =
+            steps.length > 0 &&
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            steps.every((s: any) => s?.execution?.status === "DONE");
+          if (!done || !route?.id || logged.current.has(route.id)) return;
+          logged.current.add(route.id);
+          const token = await getAccessToken();
+          await fetch("/api/events", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            },
+            body: JSON.stringify({
+              type: "swap.executed",
+              amount_usd: Number(route.fromAmountUSD ?? route.toAmountUSD ?? 0),
+              payload: {
+                fromToken: route.fromToken?.symbol,
+                toToken: route.toToken?.symbol,
+                fromChain: route.fromChainId,
+                toChain: route.toChainId,
+              },
+            }),
+          });
+        } catch {
+          /* best-effort */
+        }
+      };
+      widgetEvents.on(WidgetEvent.RouteExecutionUpdated, handler);
+      unsub = () => widgetEvents.off(WidgetEvent.RouteExecutionUpdated, handler);
+    });
+    return () => {
+      cancelled = true;
+      unsub();
+    };
+  }, [open, getAccessToken]);
+
   if (!open) return null;
   return (
     <div

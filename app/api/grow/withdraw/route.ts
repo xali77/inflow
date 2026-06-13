@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getEmbeddedWallet } from "@/lib/privy";
 import { GROW_VAULT_ID, withdraw } from "@/lib/privy-earn";
+import { logEvent } from "@/lib/events";
 
 function bearer(req: NextRequest) {
   const h = req.headers.get("authorization") ?? "";
@@ -33,6 +34,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "No embedded wallet" }, { status: 400 });
     }
     const result = await withdraw(wallet.id, amount);
+    await logEvent({
+      type: "grow.withdraw",
+      address: wallet.address,
+      amount_usd: Number(amount),
+      payload: { vault: GROW_VAULT_ID },
+    });
     return NextResponse.json({ ok: true, result });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Withdraw failed";

@@ -29,13 +29,15 @@ export default function RampButtons({ onDone }: { onDone?: () => void }) {
         const { widgetUrl } = await res.json();
         // Import the SDK lazily so it never runs during SSR.
         const { Transak } = await import("@transak/transak-sdk");
+        document.getElementById("transakRoot")?.remove();
         const transak = new Transak({
           widgetUrl,
           referrer: window.location.origin,
+          themeColor: "E8A33D",
         });
         transak.init();
         Transak.on(Transak.EVENTS.TRANSAK_ORDER_SUCCESSFUL, () => onDone?.());
-        Transak.on(Transak.EVENTS.TRANSAK_WIDGET_CLOSE, () => transak.cleanup());
+        Transak.on(Transak.EVENTS.TRANSAK_WIDGET_CLOSE, () => transak.close());
       } catch (e) {
         setError(e instanceof Error ? e.message : "Could not start");
       } finally {

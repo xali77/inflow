@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { isAddress } from "viem";
 import { getStore } from "@/lib/store";
 import { isValidCountryCode } from "@/lib/countries";
+import { logEvent } from "@/lib/events";
 
 export type Profile = {
   name: string;
@@ -78,5 +79,10 @@ export async function POST(req: NextRequest) {
     created_at: new Date().toISOString(),
   };
   await store.set(key, profile);
+  await logEvent({
+    type: "onboarding.completed",
+    address,
+    payload: { country, role },
+  });
   return NextResponse.json({ profile });
 }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { hashSignal } from "@worldcoin/idkit/hashing";
 import { getStore } from "@/lib/store";
+import { logEvent } from "@/lib/events";
 
 // World ID 4.0 verification endpoint (Developer Portal), scoped by RP id.
 const VERIFY_BASE = "https://developer.world.org/api/v4/verify";
@@ -123,6 +124,8 @@ export async function POST(req: NextRequest) {
   };
   await store.set(nullifierKey(item.nullifier), record);
   await store.set(walletKey(signal), record);
+
+  await logEvent({ type: "identity.verified", address: signal, payload: { action } });
 
   return NextResponse.json({ verified: true });
 }

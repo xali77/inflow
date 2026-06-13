@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isAddress } from "viem";
 import { getStore } from "@/lib/store";
+import { logEvent } from "@/lib/events";
 import type { Profile } from "../profile/route";
 
 export type Activity = {
@@ -81,6 +82,22 @@ export async function POST(req: NextRequest) {
       amount,
       hash,
       at,
+    }),
+  ]);
+
+  const usd = Number(amount);
+  await Promise.all([
+    logEvent({
+      type: "remittance.sent",
+      address: from,
+      amount_usd: usd,
+      payload: { to, to_name: toProfile?.name, to_country: toProfile?.country, hash },
+    }),
+    logEvent({
+      type: "remittance.received",
+      address: to,
+      amount_usd: usd,
+      payload: { from, from_name: fromProfile?.name, from_country: fromProfile?.country, hash },
     }),
   ]);
 

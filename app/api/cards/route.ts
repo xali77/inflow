@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getEmbeddedWallet } from "@/lib/privy";
+import { logEvent } from "@/lib/events";
 import {
   INTL_CARD_TYPE,
   US_CARD_TYPE,
@@ -79,6 +80,12 @@ export async function POST(req: NextRequest) {
       type === "intl"
         ? await orderIntlCard(wallet, amount)
         : await orderUsCard(wallet, amount);
+    await logEvent({
+      type: "card.order",
+      address: wallet.address,
+      amount_usd: amount,
+      payload: { card_type: type },
+    });
     return NextResponse.json({ ok: true, result });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Order failed";

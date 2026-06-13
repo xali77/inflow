@@ -98,30 +98,13 @@ export default function Home() {
         </div>
 
         <main className="mx-auto max-w-5xl px-5 py-6 lg:px-10 lg:py-9">
-          {/* Greeting + primary actions */}
-          <div className="mb-6 flex items-start justify-between gap-4">
-            <div>
-              <h1 className="text-2xl font-semibold tracking-tight">
-                {greeting()}
-                {name ? `, ${name}` : ""}
-              </h1>
-              <p className="text-ink-soft mt-0.5 text-sm">{dateStr}</p>
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => setOpenSheet("receive")}
-                aria-label="Receive"
-                className="text-ink-soft flex h-10 w-10 items-center justify-center rounded-full border border-line transition-colors hover:text-ink"
-              >
-                ↓
-              </button>
-              <button
-                onClick={() => setOpenSheet("send")}
-                className="bg-ink text-ground flex items-center gap-1.5 rounded-full px-4 py-2.5 text-sm font-medium transition-opacity hover:opacity-90"
-              >
-                ↑ Send money
-              </button>
-            </div>
+          {/* Greeting */}
+          <div className="mb-6">
+            <h1 className="text-2xl font-semibold tracking-tight">
+              {greeting()}
+              {name ? `, ${name}` : ""}
+            </h1>
+            <p className="text-ink-soft mt-0.5 text-sm">{dateStr}</p>
           </div>
 
           {/* Dashboard grid */}
@@ -129,7 +112,23 @@ export default function Home() {
             <div className="flex flex-col gap-4">
               <section className="card relative overflow-hidden p-6">
                 <div className="bg-accent/5 pointer-events-none absolute -right-16 -top-16 h-48 w-48 rounded-full blur-2xl" />
-                <Balance address={address} reloadSignal={refresh} />
+                <div className="relative">
+                  <Balance address={address} reloadSignal={refresh} />
+                  <div className="mt-6 grid grid-cols-2 gap-3">
+                    <button
+                      onClick={() => setOpenSheet("send")}
+                      className="bg-ink text-ground flex items-center justify-center gap-1.5 rounded-xl py-3 text-sm font-medium transition-opacity hover:opacity-90"
+                    >
+                      ↑ Send
+                    </button>
+                    <button
+                      onClick={() => setOpenSheet("receive")}
+                      className="flex items-center justify-center gap-1.5 rounded-xl border border-line bg-ground py-3 text-sm font-medium text-ink transition-colors hover:border-ink-soft/40"
+                    >
+                      ↓ Receive
+                    </button>
+                  </div>
+                </div>
               </section>
               <ActivityList address={address} reloadSignal={refresh} />
             </div>

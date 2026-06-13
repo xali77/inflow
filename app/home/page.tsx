@@ -19,10 +19,23 @@ export default function Home() {
   const [openSheet, setOpenSheet] = useState<"send" | "receive" | null>(null);
   // Bumped after a send to refresh balance + activity.
   const [refresh, setRefresh] = useState(0);
+  // Profile gate: new users must complete onboarding before reaching home.
+  const [profileReady, setProfileReady] = useState(false);
 
   useEffect(() => {
     if (ready && !authenticated) router.replace("/");
   }, [ready, authenticated, router]);
+
+  useEffect(() => {
+    if (!authenticated || !address) return;
+    fetch(`/api/profile?address=${address}`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.profile) setProfileReady(true);
+        else router.replace("/onboarding");
+      })
+      .catch(() => setProfileReady(true));
+  }, [authenticated, address, router]);
 
   // Verification state lives on the server, never in client storage.
   useEffect(() => {
@@ -33,7 +46,7 @@ export default function Home() {
       .catch(() => {});
   }, [address]);
 
-  if (!ready || !authenticated) {
+  if (!ready || !authenticated || !profileReady) {
     return (
       <main className="flex flex-1 items-center justify-center">
         <p className="text-ink-soft text-sm">Loading…</p>

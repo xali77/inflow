@@ -24,12 +24,21 @@ export default function Balance({
     };
   }, [address, reloadSignal]);
 
+  const [whole, cents] = Number(balance)
+    .toLocaleString("en-US", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })
+    .split(".");
+
   return (
-    <div className="text-center">
-      <p className="text-6xl font-semibold tabular-nums tracking-tight">
-        {balance}
+    <div>
+      <p className="eyebrow">Available balance</p>
+      <p className="mt-2 text-5xl font-semibold tracking-tight tabular-nums">
+        <span className="text-ink-soft">$</span>
+        {whole}
+        <span className="text-ink-soft">.{cents}</span>
       </p>
-      <p className="text-ink-soft mt-1 text-sm">USDC</p>
     </div>
   );
 }

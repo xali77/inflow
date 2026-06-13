@@ -5,6 +5,14 @@ import type { Activity } from "@/app/api/activity/route";
 
 const short = (addr: string) => `${addr.slice(0, 6)}…${addr.slice(-4)}`;
 
+const timeAgo = (iso: string) => {
+  const diff = Date.now() - new Date(iso).getTime();
+  const day = 86_400_000;
+  if (diff < day) return "Today";
+  const days = Math.floor(diff / day);
+  return days === 1 ? "Yesterday" : `${days} days ago`;
+};
+
 export default function ActivityList({
   address,
   reloadSignal,
@@ -29,38 +37,41 @@ export default function ActivityList({
   }, [address, reloadSignal]);
 
   return (
-    <div className="w-full">
-      <h2 className="text-ink-soft mb-3 text-sm">Recent activity</h2>
+    <div className="card p-5">
+      <h2 className="mb-4 text-sm font-medium">Activity</h2>
       {items.length === 0 ? (
-        <p className="rounded-xl border border-line bg-surface px-4 py-6 text-center text-sm text-ink-soft">
-          No activity yet.
-        </p>
+        <p className="text-ink-soft py-6 text-center text-sm">No activity yet.</p>
       ) : (
-        <ul className="divide-y divide-line overflow-hidden rounded-xl border border-line bg-surface">
-          {items.map((it, i) => (
-            <li
-              key={`${it.hash}-${i}`}
-              className="flex items-center justify-between px-4 py-3"
-            >
-              <div>
-                <p className="text-sm">
-                  {it.direction === "received" ? "Received" : "Sent"}
-                </p>
-                <p className="text-ink-soft text-xs">
-                  {it.direction === "received" ? "from" : "to"}{" "}
-                  {short(it.counterparty)}
-                </p>
-              </div>
-              <span
-                className={`text-sm tabular-nums ${
-                  it.direction === "received" ? "text-accent" : "text-ink"
-                }`}
+        <ul className="flex flex-col gap-1">
+          {items.map((it, i) => {
+            const received = it.direction === "received";
+            return (
+              <li
+                key={`${it.hash}-${i}`}
+                className="flex items-center gap-3 py-2"
               >
-                {it.direction === "received" ? "+" : "−"}
-                {it.amount}
-              </span>
-            </li>
-          ))}
+                <span className="border-line bg-ground text-ink-soft flex h-10 w-10 shrink-0 items-center justify-center rounded-full border text-base">
+                  {received ? "↓" : "↑"}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm">
+                    {received ? "Received" : "Sent"}
+                  </p>
+                  <p className="text-ink-soft truncate text-xs">
+                    {received ? "from" : "to"} {short(it.counterparty)} ·{" "}
+                    {timeAgo(it.at)}
+                  </p>
+                </div>
+                <span
+                  className={`shrink-0 text-sm tabular-nums ${
+                    received ? "text-ink" : "text-ink-soft"
+                  }`}
+                >
+                  {received ? "+" : "−"}${it.amount}
+                </span>
+              </li>
+            );
+          })}
         </ul>
       )}
     </div>

@@ -1,7 +1,7 @@
 "use client";
 
-const SIZE = 180;
-const STROKE = 10;
+const SIZE = 168;
+const STROKE = 12;
 const RADIUS = (SIZE - STROKE) / 2;
 const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
 
@@ -16,7 +16,7 @@ export default function FlowScoreRing({ verified, score = 0, onVerify }: Props) 
   const progress = verified ? Math.max(score / 100, 0.02) : 0;
 
   return (
-    <div className="flex flex-col items-center gap-4">
+    <div className="flex flex-col items-center gap-5">
       <div className="relative" style={{ width: SIZE, height: SIZE }}>
         <svg width={SIZE} height={SIZE} className="-rotate-90">
           <circle
@@ -26,7 +26,7 @@ export default function FlowScoreRing({ verified, score = 0, onVerify }: Props) 
             fill="none"
             stroke="var(--color-line)"
             strokeWidth={STROKE}
-            opacity={verified ? 1 : 0.5}
+            opacity={verified ? 1 : 0.45}
           />
           {verified && (
             <circle
@@ -45,29 +45,27 @@ export default function FlowScoreRing({ verified, score = 0, onVerify }: Props) 
         <div className="absolute inset-0 flex flex-col items-center justify-center">
           {verified ? (
             <>
-              <span className="text-4xl font-semibold tabular-nums">
-                {score}
-              </span>
-              <span className="text-ink-soft text-xs">Month 0</span>
+              <span className="text-5xl font-semibold tabular-nums">{score}</span>
+              <span className="text-ink-soft mt-1 text-xs">Month 0</span>
             </>
           ) : (
-            <span className="text-ink-soft px-8 text-center text-sm">
-              Verify you&rsquo;re you to start your score
+            <span className="text-ink-soft max-w-[8rem] text-center text-sm leading-snug">
+              Verify to start your score
             </span>
           )}
         </div>
       </div>
 
       {verified ? (
-        <span className="border-accent/40 text-accent rounded-full border px-3 py-1 text-xs">
-          1 person, 1 score
+        <span className="text-accent border-accent/30 bg-accent/5 rounded-full border px-3 py-1 text-xs font-medium">
+          1 person · 1 score
         </span>
       ) : (
         <button
           onClick={onVerify}
-          className="rounded-xl border border-line bg-surface px-6 py-2.5 text-sm text-ink"
+          className="rounded-full border border-line bg-ground px-6 py-2.5 text-sm font-medium text-ink transition-colors hover:border-ink-soft/40"
         >
-          Verify
+          Verify you&rsquo;re you
         </button>
       )}
     </div>

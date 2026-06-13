@@ -135,9 +135,9 @@ export default function GrowCard({ address }: { address?: string }) {
 
   if (!data.configured) {
     return (
-      <div className="w-full rounded-xl border border-line bg-surface px-4 py-5">
-        <p className="text-sm">Grow</p>
-        <p className="text-ink-soft mt-1 text-xs">
+      <div className="card p-5">
+        <p className="eyebrow">Grow</p>
+        <p className="text-ink-soft mt-2 text-xs">
           Earn yield on your balance. Set NEXT_PUBLIC_GROW_VAULT_ID to enable.
         </p>
       </div>
@@ -148,27 +148,27 @@ export default function GrowCard({ address }: { address?: string }) {
   const principal = Number(data.position.assets_in_vault) || 0;
 
   return (
-    <div className="w-full rounded-xl border border-line bg-surface px-4 py-5">
+    <div className="card p-5">
       <div className="mb-3 flex items-center justify-between">
-        <span className="text-sm">Grow</span>
-        <span className="text-accent text-xs">{apyPct}% APY</span>
+        <span className="eyebrow">Grow</span>
+        <span className="text-accent border-accent/30 bg-accent/5 rounded-full border px-2 py-0.5 text-xs font-medium">
+          {apyPct}% APY
+        </span>
       </div>
 
       <p className="text-3xl font-semibold tabular-nums">
-        {(projected ?? principal).toFixed(principal > 0 ? 6 : 2)}
+        <span className="text-ink-soft">$</span>
+        {(projected ?? principal).toFixed(principal > 0 ? 4 : 2)}
       </p>
-      <p className="text-ink-soft mt-0.5 text-xs">
-        USDC growing{" "}
-        <span className="text-ink-soft/70">(projected at {apyPct}% APY)</span>
-      </p>
+      <p className="text-ink-soft mt-1 text-xs">projected at {apyPct}% APY</p>
 
-      <div className="mt-4 grid grid-cols-2 gap-3">
+      <div className="mt-5 grid grid-cols-2 gap-3">
         <button
           onClick={() => {
             setError(null);
             setMode("deposit");
           }}
-          className="rounded-xl border border-line bg-ground py-2.5 text-sm text-ink"
+          className="rounded-xl border border-line bg-ground py-2.5 text-sm font-medium text-ink transition-colors hover:border-ink-soft/40"
         >
           Add to Grow
         </button>
@@ -177,20 +177,20 @@ export default function GrowCard({ address }: { address?: string }) {
             setError(null);
             setMode("withdraw");
           }}
-          className="rounded-xl border border-line bg-ground py-2.5 text-sm text-ink"
+          className="rounded-xl border border-line bg-ground py-2.5 text-sm font-medium text-ink transition-colors hover:border-ink-soft/40"
         >
           Withdraw
         </button>
       </div>
 
-      <div className="mt-3 flex items-center justify-between text-xs">
+      <div className="text-ink-soft mt-4 flex items-center justify-between text-xs">
         <button
           onClick={() => address && fundWallet({ address })}
-          className="text-ink-soft hover:text-ink"
+          className="transition-colors hover:text-ink"
         >
           Add funds
         </button>
-        <button onClick={enableGrow} className="text-ink-soft hover:text-ink">
+        <button onClick={enableGrow} className="transition-colors hover:text-ink">
           Enable Grow
         </button>
       </div>

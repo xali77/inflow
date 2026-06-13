@@ -56,62 +56,66 @@ export default function Home() {
   }
 
   return (
-    <main className="flex flex-1 flex-col px-6 pb-10">
-      <header className="flex items-center justify-between py-4">
-        <span className="flex items-center gap-2 text-sm font-medium">
+    <main className="flex flex-1 flex-col gap-4 px-5 pb-12">
+      <header className="flex items-center justify-between py-5">
+        <span className="flex items-center gap-2 font-medium">
           <Image
             src="/logo.png"
             alt="Inflow"
-            width={24}
-            height={24}
-            className="rounded-md"
+            width={26}
+            height={26}
+            className="rounded-lg"
           />
           Inflow
         </span>
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-2">
           <button
             onClick={() => router.push("/cards")}
-            className="text-ink-soft text-xs hover:text-ink"
+            className="rounded-full border border-line px-3.5 py-1.5 text-xs text-ink-soft transition-colors hover:text-ink"
           >
             Cards
           </button>
           <button
             onClick={logout}
-            className="text-ink-soft text-xs hover:text-ink"
+            className="rounded-full border border-line px-3.5 py-1.5 text-xs text-ink-soft transition-colors hover:text-ink"
           >
             Log out
           </button>
         </div>
       </header>
 
-      <section className="flex flex-col items-center gap-8 pt-8">
+      {/* Balance + primary actions */}
+      <section className="card p-6">
         <Balance address={address} reloadSignal={refresh} />
-
-        <WorldIdVerify
-          address={address}
-          verified={verified}
-          onVerified={() => setVerified(true)}
-        />
-
-        <div className="grid w-full grid-cols-2 gap-3">
+        <div className="mt-6 grid grid-cols-2 gap-3">
           <button
             onClick={() => setOpenSheet("send")}
-            className="rounded-xl border border-line bg-surface py-3.5 text-ink"
+            className="rounded-xl border border-line bg-ground py-3 text-sm font-medium text-ink transition-colors hover:border-ink-soft/40"
           >
             Send
           </button>
           <button
             onClick={() => setOpenSheet("receive")}
-            className="rounded-xl border border-line bg-surface py-3.5 text-ink"
+            className="rounded-xl border border-line bg-ground py-3 text-sm font-medium text-ink transition-colors hover:border-ink-soft/40"
           >
             Receive
           </button>
         </div>
-
-        <GrowCard address={address} />
-
-        <ActivityList address={address} reloadSignal={refresh} />
       </section>
+
+      {/* FlowScore */}
+      <section className="card flex flex-col items-center gap-5 p-6">
+        <p className="eyebrow self-start">FlowScore</p>
+        <WorldIdVerify
+          address={address}
+          verified={verified}
+          onVerified={() => setVerified(true)}
+        />
+      </section>
+
+      <GrowCard address={address} />
+
+      <ActivityList address={address} reloadSignal={refresh} />
 
       <SendSheet
         open={openSheet === "send"}

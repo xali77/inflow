@@ -28,7 +28,7 @@ export default function Landing() {
       <button
         onClick={login}
         disabled={!ready}
-        className="rounded-xl border border-line bg-surface px-8 py-3 text-ink disabled:opacity-50"
+        className="mt-2 rounded-full border border-line bg-surface px-10 py-3 font-medium text-ink transition-colors hover:border-ink-soft/40 disabled:opacity-50"
       >
         Continue
       </button>

@@ -34,15 +34,22 @@ ID human verification. Senders simply never verify; receivers do.
 4. **Env vars** — fill `.env.local` (template in `.env.example`):
 
    ```
-   NEXT_PUBLIC_PRIVY_APP_ID=      # from dashboard.privy.io
-   NEXT_PUBLIC_WLD_APP_ID=        # app_staging_… from developer.worldcoin.org
+   NEXT_PUBLIC_PRIVY_APP_ID=        # from dashboard.privy.io
+   NEXT_PUBLIC_PRIVY_CLIENT_ID=     # optional; dashboard → App settings → Clients
+   NEXT_PUBLIC_WLD_APP_ID=          # app_staging_… from developer.worldcoin.org
    NEXT_PUBLIC_WLD_ACTION=verify-human
-   NEXT_PUBLIC_ARC_RPC_URL=       # TODO: from Arc docs at the venue
-   NEXT_PUBLIC_ARC_CHAIN_ID=      # TODO: from Arc docs
-   NEXT_PUBLIC_ARC_USDC_ADDRESS=  # optional; falls back to native balance on Arc
-   SUPABASE_URL=                  # optional
-   SUPABASE_ANON_KEY=             # optional
+   NEXT_PUBLIC_ARC_RPC_URL=         # TODO: from Arc docs at the venue
+   NEXT_PUBLIC_ARC_CHAIN_ID=        # TODO: from Arc docs
+   NEXT_PUBLIC_ARC_USDC_ADDRESS=    # optional; falls back to native balance on Arc
+   SUPABASE_URL=                    # optional
+   SUPABASE_ANON_KEY=               # optional
+   PRIVY_APP_SECRET=                # server-only; Privy wallet API for in-app send
+   PRIVY_AUTHORIZATION_PRIVATE_KEY= # server-only; only if you add a Privy authorization key
    ```
+
+   Client-side sends from the embedded wallet need only the app ID; the
+   server-only Privy keys are for server-initiated wallet API calls (build 2).
+   They must never be exposed with a `NEXT_PUBLIC_` prefix.
 
    If the Arc vars are empty the app boots on Base mainnet only (with a console
    warning). If the Supabase vars are empty, persistence falls back to a local

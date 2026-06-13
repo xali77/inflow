@@ -42,9 +42,9 @@ ID human verification. Senders simply never verify; receivers do.
    NEXT_PUBLIC_WLD_RP_ID=           # rp_…   from "Enable World ID 4.0"
    WLD_RP_SIGNING_KEY=              # server-only secret; signs verification requests
    NEXT_PUBLIC_WLD_ACTION=verify-human
-   NEXT_PUBLIC_ARC_RPC_URL=         # TODO: from Arc docs at the venue
-   NEXT_PUBLIC_ARC_CHAIN_ID=        # TODO: from Arc docs
-   NEXT_PUBLIC_ARC_USDC_ADDRESS=    # optional; falls back to native balance on Arc
+   NEXT_PUBLIC_ARC_RPC_URL=https://rpc.testnet.arc.network
+   NEXT_PUBLIC_ARC_CHAIN_ID=5042002
+   NEXT_PUBLIC_ARC_USDC_ADDRESS=0x3600000000000000000000000000000000000000
    SUPABASE_URL=                    # optional
    SUPABASE_ANON_KEY=               # optional
    PRIVY_APP_SECRET=                # server-only; Privy wallet API for in-app send
@@ -55,9 +55,14 @@ ID human verification. Senders simply never verify; receivers do.
    server-only Privy keys are for server-initiated wallet API calls (build 2).
    They must never be exposed with a `NEXT_PUBLIC_` prefix.
 
-   If the Arc vars are empty the app boots on Base mainnet only (with a console
-   warning). If the Supabase vars are empty, persistence falls back to a local
-   JSON file at `.data/store.json` (gitignored).
+   Arc (Circle's testnet, chain `5042002`) is the default chain; USDC is its
+   native gas token. The balance is read through the USDC ERC-20 interface
+   (6 decimals) — the same code path as Base. Get test USDC from the
+   [Circle faucet](https://faucet.circle.com); explorer at
+   [testnet.arcscan.app](https://testnet.arcscan.app). If the Arc vars are
+   empty the app boots on Base mainnet only (with a console warning). If the
+   Supabase vars are empty, persistence falls back to a local JSON file at
+   `.data/store.json` (gitignored).
 
 5. **Run**
 

@@ -24,7 +24,7 @@ function apyFraction(apy: number | null) {
 }
 
 export default function GrowCard({ address }: { address?: string }) {
-  const { getAccessToken, user } = usePrivy();
+  const { getAccessToken } = usePrivy();
   const { fundWallet } = useFundWallet();
   const { delegateWallet } = useDelegatedActions();
 
@@ -41,32 +41,44 @@ export default function GrowCard({ address }: { address?: string }) {
     null
   );
 
-  const load = useCallback(async () => {
-    if (!address) return;
+  const fetchGrow = useCallback(async (): Promise<GrowData | null> => {
+    if (!address) return null;
     try {
       const token = await getAccessToken();
       const res = await fetch("/api/grow/position", {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
-      const d = (await res.json()) as GrowData & { error?: string };
-      setData(d);
-      if (d.configured) {
-        const principal = Number(d.position.assets_in_vault) || 0;
-        baseRef.current = {
-          principal,
-          rate: apyFraction(d.vault.user_apy),
-          at: Date.now(),
-        };
-        setProjected(principal);
-      }
+      return (await res.json()) as GrowData;
     } catch {
-      // leave data null; card stays hidden on hard failure
+      return null;
     }
   }, [address, getAccessToken]);
 
+  // Applies fetched data to state. Called from async callbacks (effect/submit),
+  // never synchronously inside an effect body.
+  const apply = useCallback((d: GrowData | null) => {
+    if (!d) return;
+    setData(d);
+    if (d.configured) {
+      const principal = Number(d.position.assets_in_vault) || 0;
+      baseRef.current = {
+        principal,
+        rate: apyFraction(d.vault.user_apy),
+        at: Date.now(),
+      };
+      setProjected(principal);
+    }
+  }, []);
+
   useEffect(() => {
-    load();
-  }, [load]);
+    let cancelled = false;
+    fetchGrow().then((d) => {
+      if (!cancelled) apply(d);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [fetchGrow, apply]);
 
   // Tick the projected number every second.
   useEffect(() => {
@@ -100,13 +112,13 @@ export default function GrowCard({ address }: { address?: string }) {
       }
       setMode(null);
       setAmount("");
-      await load();
+      apply(await fetchGrow());
     } catch (e) {
       setError(e instanceof Error ? e.message : "Request failed");
     } finally {
       setBusy(false);
     }
-  }, [mode, amount, getAccessToken, load]);
+  }, [mode, amount, getAccessToken, fetchGrow, apply]);
 
   const enableGrow = useCallback(async () => {
     if (!address) return;

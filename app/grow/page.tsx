@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { usePrivy } from "@privy-io/react-auth";
 import Sidebar from "@/components/sidebar";
 import GrowCard from "@/components/grow-card";
+import LocksCard from "@/components/locks-card";
 
 export default function Grow() {
   const { ready, authenticated, logout, user } = usePrivy();
@@ -48,8 +49,9 @@ export default function Grow() {
               Earn yield on your balance, paid from your own wallet.
             </p>
           </div>
-          <div className="mt-6">
+          <div className="mt-6 flex flex-col gap-4">
             <GrowCard address={address} />
+            <LocksCard address={address} />
           </div>
         </main>
       </div>

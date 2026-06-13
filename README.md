@@ -1,36 +1,80 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Inflow
 
-## Getting Started
+A remittance neobank. Money that arrives builds your score.
 
-First, run the development server:
+One unified home screen serves both senders and receivers: anyone logged in can
+send and receive; the FlowScore ring and credit layer only activate after World
+ID human verification. Senders simply never verify; receivers do.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+## Stack
+
+- Next.js (App Router) + TypeScript + Tailwind
+- [Privy](https://privy.io) embedded wallets (email + SMS login, no seed phrase)
+- [World ID](https://world.org/world-id) human verification with **server-side
+  proof validation** (`@worldcoin/idkit` v2 — pinned because v4 dropped the
+  `IDKitWidget` incognito-actions API this app uses)
+- viem for chain reads (Arc testnet default, Base mainnet)
+
+## Setup
+
+1. **Install**
+
+   ```sh
+   pnpm install
+   ```
+
+2. **Privy app ID** — create an app at [dashboard.privy.io](https://dashboard.privy.io).
+   Enable email and SMS login. Copy the App ID.
+
+3. **World ID app** — create a **staging** app at
+   [developer.worldcoin.org](https://developer.worldcoin.org). Add an
+   **incognito action** named `verify-human`. Copy the app ID (`app_staging_…`).
+   Test proofs with the [World ID simulator](https://simulator.worldcoin.org).
+
+4. **Env vars** — fill `.env.local` (template in `.env.example`):
+
+   ```
+   NEXT_PUBLIC_PRIVY_APP_ID=      # from dashboard.privy.io
+   NEXT_PUBLIC_WLD_APP_ID=        # app_staging_… from developer.worldcoin.org
+   NEXT_PUBLIC_WLD_ACTION=verify-human
+   NEXT_PUBLIC_ARC_RPC_URL=       # TODO: from Arc docs at the venue
+   NEXT_PUBLIC_ARC_CHAIN_ID=      # TODO: from Arc docs
+   NEXT_PUBLIC_ARC_USDC_ADDRESS=  # optional; falls back to native balance on Arc
+   SUPABASE_URL=                  # optional
+   SUPABASE_ANON_KEY=             # optional
+   ```
+
+   If the Arc vars are empty the app boots on Base mainnet only (with a console
+   warning). If the Supabase vars are empty, persistence falls back to a local
+   JSON file at `.data/store.json` (gitignored).
+
+5. **Run**
+
+   ```sh
+   pnpm dev
+   ```
+
+## How verification works
+
+The IDKit widget collects a World ID proof in the browser and POSTs it to
+`/api/verify-worldid`. The server calls World's v2 verify endpoint
+(`https://developer.worldcoin.org/api/v2/verify/{app_id}`) with the proof,
+action, and signal — the signal is the user's Privy wallet address. On success
+the server persists `{ nullifier_hash, wallet_address, verified_at }` and
+rejects any nullifier already bound to a different wallet: one human, one
+account. Client-side verification is never trusted alone, and no auth or
+verification state is kept in localStorage.
+
+## Supabase (optional)
+
+If you set the Supabase env vars, create the key-value table the storage
+adapter expects:
+
+```sql
+create table kv (key text primary key, value jsonb);
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Deploy
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
-
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Push to GitHub, import in Vercel, set the same env vars (use Supabase in
+production — the JSON file store is per-instance and ephemeral on Vercel).

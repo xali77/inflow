@@ -6,6 +6,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { defaultChain, supportedChains } from "@/lib/chains";
 import { wagmiConfig } from "@/lib/wagmi";
 import WalletSync from "@/components/wallet-sync";
+import SuppressWarnings from "@/components/suppress-warnings";
 
 const privyAppId = process.env.NEXT_PUBLIC_PRIVY_APP_ID;
 const privyClientId = process.env.NEXT_PUBLIC_PRIVY_CLIENT_ID;
@@ -25,13 +26,15 @@ export default function Providers({ children }: { children: React.ReactNode }) {
   }
 
   return (
+    <>
+    <SuppressWarnings />
     <PrivyProvider
       appId={privyAppId}
       clientId={privyClientId || undefined}
       config={{
         loginMethods: ["email", "sms"],
         embeddedWallets: {
-          ethereum: { createOnLogin: "users-without-wallets" },
+          ethereum: { createOnLogin: "all-users" },
         },
         defaultChain,
         supportedChains,
@@ -48,5 +51,6 @@ export default function Providers({ children }: { children: React.ReactNode }) {
         </WagmiProvider>
       </QueryClientProvider>
     </PrivyProvider>
+    </>
   );
 }

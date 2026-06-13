@@ -34,6 +34,14 @@ export default function SendSheet({
   const [status, setStatus] = useState<Status>({ kind: "idle" });
   const [sentHash, setSentHash] = useState<string | null>(null);
 
+  // Scheduling: send now, or set up a recurring / one-time future payment.
+  const [when, setWhen] = useState<"now" | "schedule">("now");
+  const [cadence, setCadence] = useState<"once" | "weekly" | "monthly" | "custom">("monthly");
+  const [intervalDays, setIntervalDays] = useState("30");
+  const today = new Date().toISOString().slice(0, 10);
+  const [startDate, setStartDate] = useState(today);
+  const [scheduled, setScheduled] = useState(false);
+
   // Look up the recipient's Flows profile (name + country) as a valid address
   // is entered, to confirm who's being paid.
   const [recipient, setRecipient] = useState<Recipient>(null);
@@ -76,6 +84,46 @@ export default function SendSheet({
     setStatus({ kind: "idle" });
     setSentHash(null);
     setRecipient(null);
+    setWhen("now");
+    setCadence("monthly");
+    setIntervalDays("30");
+    setStartDate(today);
+    setScheduled(false);
+  };
+
+  const canSchedule =
+    !!address && isAddress(to) && amountNum > 0 && status.kind !== "sending";
+
+  const scheduleSubmit = async () => {
+    if (!canSchedule || !address) return;
+    setStatus({ kind: "sending" });
+    try {
+      const res = await fetch("/api/schedules", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          owner: address,
+          to,
+          toName: recipient?.name,
+          amount: amountNum,
+          cadence,
+          intervalDays: cadence === "custom" ? Number(intervalDays) : undefined,
+          next_run: new Date(`${startDate}T12:00:00`).toISOString(),
+        }),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.error ?? "Could not schedule");
+      }
+      setScheduled(true);
+      setStatus({ kind: "idle" });
+      onSent?.();
+    } catch (e) {
+      setStatus({
+        kind: "error",
+        message: e instanceof Error ? e.message : "Could not schedule",
+      });
+    }
   };
 
   const close = () => {
@@ -116,6 +164,38 @@ export default function SendSheet({
     }
   };
 
+  if (scheduled) {
+    const label =
+      cadence === "once"
+        ? `on ${startDate}`
+        : cadence === "weekly"
+          ? "every 7 days"
+          : cadence === "monthly"
+            ? "every 30 days"
+            : `every ${intervalDays} days`;
+    return (
+      <Sheet open={open} onClose={close} title="Scheduled">
+        <div className="flex flex-col items-center gap-4 py-2 text-center">
+          <p className="text-2xl font-semibold tabular-nums">
+            {amountNum.toFixed(2)} USDC
+          </p>
+          <p className="text-ink-soft text-sm">
+            scheduled to {recipient?.name ?? "recipient"} {label}, starting {startDate}.
+          </p>
+          <p className="text-ink-soft text-xs">
+            Manage it anytime from “Scheduled” on your home screen.
+          </p>
+          <button
+            onClick={close}
+            className="mt-2 w-full rounded-xl border border-line bg-ground px-4 py-3 text-ink"
+          >
+            Done
+          </button>
+        </div>
+      </Sheet>
+    );
+  }
+
   if (sentHash) {
     const url = explorerTxUrl(sentHash);
     return (
@@ -149,6 +229,21 @@ export default function SendSheet({
   return (
     <Sheet open={open} onClose={close} title="Send">
       <div className="flex flex-col gap-4">
+        {/* Now vs Schedule */}
+        <div className="grid grid-cols-2 gap-1 rounded-xl border border-line bg-ground p-1">
+          {(["now", "schedule"] as const).map((w) => (
+            <button
+              key={w}
+              onClick={() => setWhen(w)}
+              className={`rounded-lg py-2 text-sm font-medium transition-colors ${
+                when === w ? "bg-surface text-ink" : "text-ink-soft hover:text-ink"
+              }`}
+            >
+              {w === "now" ? "Send now" : "Schedule"}
+            </button>
+          ))}
+        </div>
+
         <label className="flex flex-col gap-1.5">
           <span className="text-ink-soft text-sm">Recipient address</span>
           <input
@@ -210,17 +305,83 @@ export default function SendSheet({
           />
         </label>
 
+        {when === "schedule" && (
+          <div className="flex flex-col gap-3 rounded-xl border border-line bg-ground p-4">
+            <div className="flex flex-col gap-1.5">
+              <span className="text-ink-soft text-sm">Frequency</span>
+              <div className="grid grid-cols-2 gap-2">
+                {(
+                  [
+                    ["once", "One-time"],
+                    ["weekly", "Every 7 days"],
+                    ["monthly", "Every 30 days"],
+                    ["custom", "Custom"],
+                  ] as const
+                ).map(([c, label]) => (
+                  <button
+                    key={c}
+                    onClick={() => setCadence(c)}
+                    className={`rounded-lg border px-3 py-2 text-xs transition-colors ${
+                      cadence === c
+                        ? "border-ink bg-surface text-ink"
+                        : "border-line text-ink-soft hover:border-ink-soft/40"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {cadence === "custom" && (
+              <label className="flex items-center justify-between gap-3">
+                <span className="text-ink-soft text-sm">Every (days)</span>
+                <input
+                  value={intervalDays}
+                  onChange={(e) => setIntervalDays(e.target.value)}
+                  type="number"
+                  min={1}
+                  className="w-24 rounded-lg border border-line bg-surface px-3 py-1.5 text-right text-sm tabular-nums focus:outline-none"
+                />
+              </label>
+            )}
+
+            <label className="flex items-center justify-between gap-3">
+              <span className="text-ink-soft text-sm">
+                {cadence === "once" ? "Send on" : "First payment"}
+              </span>
+              <input
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                type="date"
+                min={today}
+                className="rounded-lg border border-line bg-surface px-3 py-1.5 text-sm tabular-nums focus:outline-none"
+              />
+            </label>
+          </div>
+        )}
+
         {status.kind === "error" && (
           <p className="text-sm text-red-400">{status.message}</p>
         )}
 
-        <button
-          onClick={submit}
-          disabled={!canSend}
-          className="mt-2 rounded-xl border border-line bg-surface px-4 py-3 text-ink disabled:opacity-50"
-        >
-          {status.kind === "sending" ? "Sending…" : "Send"}
-        </button>
+        {when === "now" ? (
+          <button
+            onClick={submit}
+            disabled={!canSend}
+            className="mt-2 rounded-xl border border-line bg-surface px-4 py-3 text-ink disabled:opacity-50"
+          >
+            {status.kind === "sending" ? "Sending…" : "Send"}
+          </button>
+        ) : (
+          <button
+            onClick={scheduleSubmit}
+            disabled={!canSchedule}
+            className="bg-ink text-ground mt-2 rounded-xl px-4 py-3 font-medium transition-opacity hover:opacity-90 disabled:opacity-50"
+          >
+            {status.kind === "sending" ? "Scheduling…" : "Schedule payment"}
+          </button>
+        )}
       </div>
     </Sheet>
   );

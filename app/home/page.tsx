@@ -10,7 +10,9 @@ import WorldIdVerify from "@/components/world-id-verify";
 import SendSheet from "@/components/send-sheet";
 import ReceiveSheet from "@/components/receive-sheet";
 import ActivityList from "@/components/activity-list";
-import RampButtons from "@/components/ramp-buttons";
+import { useRamp } from "@/components/use-ramp";
+import ScheduledModal from "@/components/scheduled-modal";
+import FlowLinesModal from "@/components/flowlines-modal";
 
 function greeting() {
   const h = new Date().getHours();
@@ -18,6 +20,25 @@ function greeting() {
   if (h < 18) return "Good afternoon";
   return "Good evening";
 }
+
+const sIcon = (children: React.ReactNode) => (
+  <svg
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth={1.7}
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className="h-[18px] w-[18px]"
+    aria-hidden
+  >
+    {children}
+  </svg>
+);
+const ClockIcon = sIcon(<><circle cx="12" cy="12" r="8.5" /><path d="M12 8v4.5l3 1.8" /></>);
+const FlowIcon = sIcon(<><circle cx="6" cy="12" r="2.4" /><circle cx="18" cy="12" r="2.4" /><path d="M8.4 12h7.2" /></>);
+const DepositIcon = sIcon(<><path d="M12 3v10" /><path d="M8 9.5l4 4 4-4" /><path d="M4.5 19.5h15" /></>);
+const WithdrawIcon = sIcon(<><path d="M12 13.5V3.5" /><path d="M8 7.5l4-4 4 4" /><path d="M4.5 19.5h15" /></>);
 
 export default function Home() {
   const { ready, authenticated, logout, user } = usePrivy();
@@ -27,8 +48,11 @@ export default function Home() {
   const [verified, setVerified] = useState(false);
   const [name, setName] = useState<string | null>(null);
   const [openSheet, setOpenSheet] = useState<"send" | "receive" | null>(null);
+  const [openModal, setOpenModal] = useState<"scheduled" | "flowlines" | null>(null);
+  const [dueCount, setDueCount] = useState(0);
   const [refresh, setRefresh] = useState(0);
   const [profileReady, setProfileReady] = useState(false);
+  const { open: openRamp, busy: rampBusy } = useRamp(() => setRefresh((n) => n + 1));
 
   useEffect(() => {
     if (ready && !authenticated) router.replace("/");
@@ -56,6 +80,22 @@ export default function Home() {
       .then((data) => setVerified(!!data.verified))
       .catch(() => {});
   }, [address]);
+
+  // Count due scheduled payments for the home-screen badge.
+  useEffect(() => {
+    if (!address) return;
+    fetch(`/api/schedules?address=${address}`)
+      .then((res) => res.json())
+      .then((d) => {
+        const now = Date.now();
+        const due = (d.schedules ?? []).filter(
+          (s: { active: boolean; next_run: string }) =>
+            s.active && new Date(s.next_run).getTime() <= now
+        ).length;
+        setDueCount(due);
+      })
+      .catch(() => {});
+  }, [address, refresh, openModal]);
 
   if (!ready || !authenticated || !profileReady) {
     return (
@@ -129,7 +169,45 @@ export default function Home() {
                       ↓ Receive
                     </button>
                   </div>
-                  <RampButtons onDone={() => setRefresh((n) => n + 1)} />
+
+                  {/* Secondary utilities */}
+                  <div className="mt-4 grid grid-cols-4 gap-1 border-t border-line pt-4">
+                    <button
+                      onClick={() => setOpenModal("scheduled")}
+                      className="text-ink-soft hover:bg-ground relative flex flex-col items-center gap-1.5 rounded-xl py-2.5 text-[11px] font-medium transition-colors hover:text-ink"
+                    >
+                      {ClockIcon}
+                      Scheduled
+                      {dueCount > 0 && (
+                        <span className="bg-accent text-ground absolute right-3 top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-semibold">
+                          {dueCount}
+                        </span>
+                      )}
+                    </button>
+                    <button
+                      onClick={() => setOpenModal("flowlines")}
+                      className="text-ink-soft hover:bg-ground flex flex-col items-center gap-1.5 rounded-xl py-2.5 text-[11px] font-medium transition-colors hover:text-ink"
+                    >
+                      {FlowIcon}
+                      FlowLines
+                    </button>
+                    <button
+                      onClick={() => openRamp("BUY")}
+                      disabled={rampBusy !== null}
+                      className="text-ink-soft hover:bg-ground flex flex-col items-center gap-1.5 rounded-xl py-2.5 text-[11px] font-medium transition-colors hover:text-ink disabled:opacity-50"
+                    >
+                      {DepositIcon}
+                      {rampBusy === "BUY" ? "Opening…" : "Add money"}
+                    </button>
+                    <button
+                      onClick={() => openRamp("SELL")}
+                      disabled={rampBusy !== null}
+                      className="text-ink-soft hover:bg-ground flex flex-col items-center gap-1.5 rounded-xl py-2.5 text-[11px] font-medium transition-colors hover:text-ink disabled:opacity-50"
+                    >
+                      {WithdrawIcon}
+                      {rampBusy === "SELL" ? "Opening…" : "Cash out"}
+                    </button>
+                  </div>
                 </div>
               </section>
               <ActivityList address={address} reloadSignal={refresh} />
@@ -158,6 +236,17 @@ export default function Home() {
       <ReceiveSheet
         open={openSheet === "receive"}
         onClose={() => setOpenSheet(null)}
+        address={address}
+      />
+      <ScheduledModal
+        open={openModal === "scheduled"}
+        onClose={() => setOpenModal(null)}
+        address={address}
+        onChange={() => setRefresh((n) => n + 1)}
+      />
+      <FlowLinesModal
+        open={openModal === "flowlines"}
+        onClose={() => setOpenModal(null)}
         address={address}
       />
     </div>

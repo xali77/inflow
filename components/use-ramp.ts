@@ -3,7 +3,8 @@
 import { useCallback, useState } from "react";
 import { usePrivy } from "@privy-io/react-auth";
 
-export default function RampButtons({ onDone }: { onDone?: () => void }) {
+// Opens the Transak buy/sell flow funded by the user's embedded wallet.
+export function useRamp(onDone?: () => void) {
   const { getAccessToken } = usePrivy();
   const [busy, setBusy] = useState<"BUY" | "SELL" | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -27,7 +28,6 @@ export default function RampButtons({ onDone }: { onDone?: () => void }) {
           throw new Error(d.error ?? "Could not start");
         }
         const { widgetUrl } = await res.json();
-        // Import the SDK lazily so it never runs during SSR.
         const { Transak } = await import("@transak/transak-sdk");
         document.getElementById("transakRoot")?.remove();
         const transak = new Transak({
@@ -47,25 +47,5 @@ export default function RampButtons({ onDone }: { onDone?: () => void }) {
     [getAccessToken, onDone]
   );
 
-  return (
-    <div className="mt-3">
-      <div className="grid grid-cols-2 gap-3">
-        <button
-          onClick={() => open("BUY")}
-          disabled={busy !== null}
-          className="text-ink-soft rounded-xl border border-line py-2.5 text-sm transition-colors hover:text-ink disabled:opacity-50"
-        >
-          {busy === "BUY" ? "Opening…" : "Add money"}
-        </button>
-        <button
-          onClick={() => open("SELL")}
-          disabled={busy !== null}
-          className="text-ink-soft rounded-xl border border-line py-2.5 text-sm transition-colors hover:text-ink disabled:opacity-50"
-        >
-          {busy === "SELL" ? "Opening…" : "Cash out"}
-        </button>
-      </div>
-      {error && <p className="mt-2 text-xs text-red-400">{error}</p>}
-    </div>
-  );
+  return { open, busy, error };
 }

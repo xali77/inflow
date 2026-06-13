@@ -129,16 +129,18 @@ export function hasUsableCardDetails(cardData: unknown) {
 }
 
 export function normalizeCardTransactions(cardData: unknown) {
-  const transactions =
-    (Array.isArray(pick(cardData, ["transactions"]))
-      ? pick(cardData, ["transactions"])
-      : undefined) ??
-    (Array.isArray(pick(nestedRecord(cardData, "card_data"), ["transactions"]))
-      ? pick(nestedRecord(cardData, "card_data"), ["transactions"])
-      : undefined) ??
-    [];
+  const rootTransactions = pick(cardData, ["transactions"]);
+  const nestedTransactions = pick(
+    nestedRecord(cardData, "card_data"),
+    ["transactions"]
+  );
+  const transactions = Array.isArray(rootTransactions)
+    ? rootTransactions
+    : Array.isArray(nestedTransactions)
+      ? nestedTransactions
+      : [];
 
-  return (transactions as unknown[]).map((txn) => {
+  return transactions.map((txn) => {
     const record = isRecord(txn) ? txn : {};
     const amount = asFiniteNumber(
       pick(record, ["amount", "usd_amount", "value"])

@@ -1,9 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { usePrivy } from "@privy-io/react-auth";
+import { usePrivy, useSessionSigners, useWallets } from "@privy-io/react-auth";
 import Sidebar from "@/components/sidebar";
 import {
   normalizeCardTransactions,
@@ -12,6 +12,8 @@ import {
 } from "@/lib/laso-cards";
 
 type DisplayCard = NormalizedLasoCard;
+
+const PRIVY_SIGNER_ID = process.env.NEXT_PUBLIC_PRIVY_SIGNER_ID;
 
 type CardsResponse = {
   configured?: boolean;
@@ -64,6 +66,14 @@ function normalizeServerCards(value: unknown): DisplayCard[] {
   });
 }
 
+function safeCards(value: unknown): DisplayCard[] {
+  return Array.isArray(value) ? value : [];
+}
+
+function safeTransactions(card: DisplayCard) {
+  return Array.isArray(card.transactions) ? card.transactions : [];
+}
+
 function maskPan(pan: string) {
   const digits = pan.replace(/\s/g, "");
   return `•••• •••• •••• ${digits.slice(-4)}`;
@@ -86,6 +96,8 @@ function cardTitle(card: DisplayCard) {
 
 export default function Cards() {
   const { ready, authenticated, getAccessToken, logout } = usePrivy();
+  const { addSessionSigners } = useSessionSigners();
+  const { wallets } = useWallets();
   const router = useRouter();
 
   const [configured, setConfigured] = useState<boolean | null>(null);
@@ -97,15 +109,22 @@ export default function Cards() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [revealed, setRevealed] = useState<Record<string, boolean>>({});
+  const signerEnabledRef = useRef(false);
 
   useEffect(() => {
     if (ready && !authenticated) router.replace("/");
   }, [ready, authenticated, router]);
 
+  const embeddedWalletAddress =
+    wallets.find((wallet) => wallet.walletClientType === "privy")?.address;
+
   const authHeader = useCallback(async (): Promise<Record<string, string>> => {
     const token = await getAccessToken();
-    return token ? { Authorization: `Bearer ${token}` } : {};
-  }, [getAccessToken]);
+    return {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(embeddedWalletAddress ? { "x-wallet-address": embeddedWalletAddress } : {}),
+    };
+  }, [getAccessToken, embeddedWalletAddress]);
 
   const fetchCards = useCallback(async () => {
     const res = await fetch("/api/cards", { headers: await authHeader() });
@@ -163,10 +182,31 @@ export default function Cards() {
     };
   }, [authenticated, fetchCards, apply]);
 
+  const ensureSignerEnabled = useCallback(async () => {
+    if (signerEnabledRef.current || !embeddedWalletAddress || !PRIVY_SIGNER_ID) {
+      return;
+    }
+
+    try {
+      await addSessionSigners({
+        address: embeddedWalletAddress,
+        signers: [{ signerId: PRIVY_SIGNER_ID }],
+      });
+      signerEnabledRef.current = true;
+    } catch (e) {
+      if (/duplicate|already/i.test(e instanceof Error ? e.message : "")) {
+        signerEnabledRef.current = true;
+        return;
+      }
+      throw e;
+    }
+  }, [addSessionSigners, embeddedWalletAddress]);
+
   const order = useCallback(async () => {
     setBusy(true);
     setError(null);
     try {
+      await ensureSignerEnabled();
       const res = await fetch("/api/cards", {
         method: "POST",
         headers: { "Content-Type": "application/json", ...(await authHeader()) },
@@ -182,7 +222,7 @@ export default function Cards() {
     } finally {
       setBusy(false);
     }
-  }, [amount, type, authHeader, load]);
+  }, [amount, type, authHeader, ensureSignerEnabled, load]);
 
   const refresh = useCallback(
     async (
@@ -231,6 +271,8 @@ export default function Cards() {
     type === "intl"
       ? (Number(amount) * 1.038).toFixed(2)
       : Number(amount).toFixed(2);
+  const activeCards = safeCards(cards);
+  const archivedList = safeCards(archivedCards);
 
   return (
     <div className="flex min-h-screen">
@@ -331,12 +373,12 @@ export default function Cards() {
 
           <div className="flex flex-col gap-3">
             <p className="eyebrow mt-2">Your cards</p>
-            {cards.length === 0 ? (
+            {activeCards.length === 0 ? (
               <p className="card px-4 py-6 text-center text-sm text-ink-soft">
                 No cards yet.
               </p>
             ) : (
-              cards.map((card) => {
+              activeCards.map((card) => {
                 const isReady = !!card.cardNumber;
                 const show = revealed[card.id];
                 const balance = cardBalance(card);
@@ -344,7 +386,7 @@ export default function Cards() {
                 const canCancel =
                   card.type === "intl" &&
                   (status === "queued" || status === "pending");
-                const transactions = card.transactions;
+                const transactions = safeTransactions(card);
                 return (
                   <div key={`${card.type}-${card.id}`} className="card p-5">
                     <div className="flex items-center justify-between">
@@ -450,11 +492,12 @@ export default function Cards() {
             )}
           </div>
 
-          {archivedCards.length > 0 && (
+          {archivedList.length > 0 && (
             <div className="flex flex-col gap-3">
               <p className="eyebrow mt-2">Archived cards</p>
-              {archivedCards.map((card) => {
+              {archivedList.map((card) => {
                 const balance = cardBalance(card);
+                const transactions = safeTransactions(card);
                 return (
                   <div key={`archived-${card.type}-${card.id}`} className="card p-5">
                     <div className="flex items-center justify-between gap-3">
@@ -472,8 +515,8 @@ export default function Cards() {
                     </div>
                     <div className="mt-3 flex items-center justify-between gap-3 text-xs">
                       <span className="text-ink-soft">
-                        {card.transactions.length} transaction
-                        {card.transactions.length === 1 ? "" : "s"}
+                        {transactions.length} transaction
+                        {transactions.length === 1 ? "" : "s"}
                       </span>
                       <button
                         onClick={() => refresh(card, "unarchive")}

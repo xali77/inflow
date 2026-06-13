@@ -1,4 +1,5 @@
 import { PrivyClient } from "@privy-io/server-auth";
+import { getAddress, isAddress } from "viem";
 
 const appId = process.env.NEXT_PUBLIC_PRIVY_APP_ID;
 const appSecret = process.env.PRIVY_APP_SECRET;
@@ -26,6 +27,28 @@ export function getPrivy(): PrivyClient {
 }
 
 export type EmbeddedWallet = { id: string; address: string };
+type PrivyLinkedWallet = {
+  id?: string | null;
+  address?: string;
+  walletClientType?: string;
+  chainType?: string;
+  delegated?: boolean;
+};
+
+function normalizeAddress(address?: string | null) {
+  return address && isAddress(address) ? getAddress(address) : null;
+}
+
+function isEmbeddedEthereumWallet(
+  account: unknown
+): account is PrivyLinkedWallet {
+  const wallet = account as PrivyLinkedWallet;
+  return (
+    wallet?.walletClientType === "privy" &&
+    wallet.chainType === "ethereum" &&
+    typeof wallet.address === "string"
+  );
+}
 
 /**
  * Verifies a Privy access token and returns the user's embedded Ethereum
@@ -33,20 +56,29 @@ export type EmbeddedWallet = { id: string; address: string };
  * Resolving server-side means the client can't spoof a wallet it doesn't own.
  */
 export async function getEmbeddedWallet(
-  accessToken: string
+  accessToken: string,
+  preferredAddress?: string | null
 ): Promise<EmbeddedWallet | null> {
   const privy = getPrivy();
   const { userId } = await privy.verifyAuthToken(accessToken);
   const user = await privy.getUserById(userId);
 
-  const wallet = user.linkedAccounts.find(
-    (a) =>
-      a.type === "wallet" &&
-      // embedded (Privy-managed) Ethereum wallet
-      (a as { walletClientType?: string }).walletClientType === "privy" &&
-      (a as { chainType?: string }).chainType === "ethereum"
-  ) as { id?: string; address?: string } | undefined;
+  const requested = normalizeAddress(preferredAddress);
+  const primary = normalizeAddress(user.wallet?.address);
+  const wallets = user.linkedAccounts.filter(
+    (account) => account.type === "wallet" && isEmbeddedEthereumWallet(account)
+  );
+  const wallet =
+    (requested
+      ? wallets.find(
+          (candidate) => normalizeAddress(candidate.address) === requested
+        )
+      : undefined) ??
+    (primary
+      ? wallets.find((candidate) => normalizeAddress(candidate.address) === primary)
+      : undefined) ??
+    wallets[0];
 
   if (!wallet?.id || !wallet.address) return null;
-  return { id: wallet.id, address: wallet.address };
+  return { id: wallet.id, address: getAddress(wallet.address) };
 }

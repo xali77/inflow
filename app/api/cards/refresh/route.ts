@@ -63,7 +63,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Cards are not configured" }, { status: 503 });
   }
   const token = bearer(req);
-  const wallet = token ? await getEmbeddedWallet(token) : null;
+  const wallet = token
+    ? await getEmbeddedWallet(token, req.headers.get("x-wallet-address"))
+    : null;
   if (!wallet) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }

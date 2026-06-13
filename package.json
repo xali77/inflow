@@ -18,15 +18,16 @@
     "@transak/transak-sdk": "^4.0.2",
     "@wagmi/core": "^3.5.0",
     "@worldcoin/idkit": "^4.1.8",
+    "@x402/evm": "^2.14.0",
     "@x402/extensions": "^2.14.0",
+    "@x402/fetch": "^2.14.0",
     "next": "16.2.9",
     "qrcode.react": "^4.2.0",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "recharts": "^3.8.1",
     "viem": "^2.52.2",
-    "wagmi": "^3.6.16",
-    "x402-fetch": "^1.2.0"
+    "wagmi": "^3.6.16"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

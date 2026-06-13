@@ -122,7 +122,7 @@ export default function Portfolio() {
         </main>
       </div>
 
-      <SwapModal open={swapOpen} onClose={() => setSwapOpen(false)} />
+      <SwapModal open={swapOpen} onClose={() => setSwapOpen(false)} address={address} />
     </div>
   );
 }

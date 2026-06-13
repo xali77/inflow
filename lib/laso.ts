@@ -1,14 +1,17 @@
 import {
-  createWalletClient,
-  http,
   parseUnits,
-  publicActions,
+  toHex,
   type Address,
   type Hex,
 } from "viem";
 import { toAccount } from "viem/accounts";
-import { base } from "viem/chains";
-import { wrapFetchWithPayment } from "x402-fetch";
+import {
+  wrapFetchWithPayment,
+  x402Client,
+  type PaymentRequirements,
+} from "@x402/fetch";
+import { registerExactEvmScheme } from "@x402/evm/exact/client";
+import type { ClientEvmSigner } from "@x402/evm";
 import { wrapFetchWithSIWx } from "@x402/extensions/sign-in-with-x";
 import { getPrivy } from "./privy";
 
@@ -75,24 +78,124 @@ type Clients = {
 };
 const _clientsByWallet = new Map<string, Clients>();
 
+function replaceBigInts<T>(value: T): T {
+  if (typeof value === "bigint") return toHex(value) as T;
+  if (Array.isArray(value)) return value.map(replaceBigInts) as T;
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(
+    Object.entries(value).map(([key, entry]) => [key, replaceBigInts(entry)])
+  ) as T;
+}
+
+function amountFor(requirement: PaymentRequirements) {
+  const legacy = requirement as PaymentRequirements & {
+    maxAmountRequired?: string;
+  };
+  const amount = legacy.amount ?? legacy.maxAmountRequired;
+  if (!amount) throw new Error("Laso payment challenge is missing amount");
+  return BigInt(amount);
+}
+
+function selectBasePayment(
+  _x402Version: number,
+  requirements: PaymentRequirements[]
+) {
+  const accepted = requirements.filter((requirement) => {
+    const network = String(requirement.network);
+    const isBase =
+      network === "eip155:8453" || network === "base";
+    return (
+      requirement.scheme === "exact" &&
+      isBase &&
+      amountFor(requirement) <= MAX_PAYMENT
+    );
+  });
+  if (!accepted.length) {
+    throw new Error("Laso payment challenge has no supported Base USDC option");
+  }
+  return accepted[0];
+}
+
+function privyEvmSigner(account: ReturnType<typeof privyAccount>): ClientEvmSigner {
+  return {
+    address: account.address,
+    async signTypedData(message) {
+      return account.signTypedData(
+        replaceBigInts(message) as Parameters<typeof account.signTypedData>[0]
+      );
+    },
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function decodePaymentRequiredHeader(value: string | null) {
+  if (!value) return null;
+  try {
+    const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
+    return JSON.parse(Buffer.from(normalized, "base64").toString("utf8"));
+  } catch {
+    return null;
+  }
+}
+
+function paymentRequiredSummary(response: Response) {
+  const challenge = decodePaymentRequiredHeader(
+    response.headers.get("payment-required")
+  );
+  if (!isRecord(challenge) || !Array.isArray(challenge.accepts)) return null;
+  const base = challenge.accepts.find((accept) => {
+    if (!isRecord(accept)) return false;
+    return accept.network === "eip155:8453" || accept.network === "base";
+  });
+  if (!isRecord(base)) return null;
+
+  const rawAmount =
+    typeof base.amount === "string"
+      ? base.amount
+      : typeof base.maxAmountRequired === "string"
+        ? base.maxAmountRequired
+        : null;
+  const amount = rawAmount ? Number(rawAmount) / 1_000_000 : null;
+  const displayAmount = Number.isFinite(amount) ? ` for ${amount} USDC` : "";
+  return `${String(base.scheme)} ${String(base.network)}${displayAmount}`;
+}
+
+function lasoError(
+  path: string,
+  response: Response,
+  body: string,
+  wallet?: UserWallet
+) {
+  if (response.status !== 402) {
+    return `Laso ${path} failed ${response.status}: ${body}`;
+  }
+  const summary = paymentRequiredSummary(response);
+  return [
+    `Laso ${path} failed 402 after x402 payment retry`,
+    summary ? ` (${summary})` : "",
+    wallet ? ` from ${wallet.address}` : "",
+    ". Confirm this Privy wallet has enough Base USDC and delegated signing is enabled.",
+    body && body !== "{}" ? ` Response: ${body}` : "",
+  ].join("");
+}
+
 function clientsFor(wallet: UserWallet): Clients {
   const cached = _clientsByWallet.get(wallet.id);
   if (cached) return cached;
 
   const account = privyAccount(wallet);
-  const walletClient = createWalletClient({
-    account,
-    chain: base,
-    transport: http(),
-  }).extend(publicActions);
+  const client = new x402Client(selectBasePayment);
+  registerExactEvmScheme(client, {
+    signer: privyEvmSigner(account),
+    networks: ["eip155:8453"],
+  });
 
   const built: Clients = {
     siwx: wrapFetchWithSIWx(fetch, account) as Clients["siwx"],
-    pay: wrapFetchWithPayment(
-      fetch,
-      walletClient as unknown as Parameters<typeof wrapFetchWithPayment>[1],
-      MAX_PAYMENT
-    ) as Clients["pay"],
+    pay: wrapFetchWithPayment(fetch, client) as Clients["pay"],
   };
   _clientsByWallet.set(wallet.id, built);
   return built;
@@ -130,7 +233,7 @@ async function bearer(wallet: UserWallet, path: string, init?: RequestInit) {
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    throw new Error(`Laso ${path} failed ${res.status}: ${text}`);
+    throw new Error(lasoError(path, res, text, wallet));
   }
   return res.json();
 }
@@ -139,7 +242,7 @@ async function paid(wallet: UserWallet, path: string) {
   const res = await clientsFor(wallet).pay(`${BASE_URL}${path}`);
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    throw new Error(`Laso ${path} failed ${res.status}: ${text}`);
+    throw new Error(lasoError(path, res, text, wallet));
   }
   return res.json();
 }

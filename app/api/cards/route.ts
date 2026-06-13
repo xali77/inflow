@@ -52,7 +52,7 @@ function archiveSet(archived: ArchivedCard[]) {
 async function requireWallet(req: NextRequest) {
   const token = bearer(req);
   if (!token) return null;
-  return getEmbeddedWallet(token);
+  return getEmbeddedWallet(token, req.headers.get("x-wallet-address"));
 }
 
 /** Lists the user's cards (US + international) and their Laso account balance. */

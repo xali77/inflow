@@ -5,49 +5,83 @@ import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { usePrivy } from "@privy-io/react-auth";
 import Sidebar from "@/components/sidebar";
+import {
+  normalizeCardTransactions,
+  normalizeLasoCards,
+  type NormalizedLasoCard,
+} from "@/lib/laso-cards";
 
-type DisplayCard = {
-  id: string;
-  label?: string;
-  status?: string;
-  cardNumber?: string;
-  cvv?: string;
-  expiry?: string;
-  balance?: string | number;
-  type: "intl" | "us";
+type DisplayCard = NormalizedLasoCard;
+
+type CardsResponse = {
+  configured?: boolean;
+  cards?: unknown;
+  archivedCards?: unknown;
+  intl?: unknown;
+  us?: unknown;
+  account?: unknown;
 };
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function pick(obj: any, keys: string[]) {
-  for (const k of keys) if (obj?.[k] != null) return obj[k];
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function pick(obj: unknown, keys: string[]) {
+  if (!isRecord(obj)) return undefined;
+  for (const k of keys) if (obj[k] != null) return obj[k];
   return undefined;
 }
 
-// Laso's card-data shape varies; normalize the common forms into a list.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function normalize(resp: any, type: "intl" | "us"): DisplayCard[] {
-  if (!resp) return [];
-  const arr: unknown[] = Array.isArray(resp)
-    ? resp
-    : (resp.cards ??
-      resp.card_data ??
-      (resp.card ? [resp.card] : resp.card_id || resp.status ? [resp] : []));
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return (arr as any[]).map((c, i) => ({
-    id: String(pick(c, ["card_id", "queued_order_card_id", "id"]) ?? i),
-    label: pick(c, ["label", "name"]),
-    status: pick(c, ["status", "state"]),
-    cardNumber: pick(c, ["card_number", "cardNumber", "pan", "number"]),
-    cvv: pick(c, ["cvv", "cvc", "security_code"]),
-    expiry: pick(c, ["expiry", "expiration", "exp"]),
-    balance: pick(c, ["available_balance", "availableBalance", "balance"]),
-    type,
-  }));
+function normalizeServerCards(value: unknown): DisplayCard[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter(isRecord).map((card, index) => {
+    const type = card.type === "us" ? "us" : "intl";
+    const id = String(card.id ?? `${type}-${index}`);
+    return {
+      id,
+      type,
+      label: card.label != null ? String(card.label) : undefined,
+      status: card.status != null ? String(card.status) : undefined,
+      cardNumber:
+        card.cardNumber != null ? String(card.cardNumber) : undefined,
+      expMonth: card.expMonth != null ? String(card.expMonth) : undefined,
+      expYear: card.expYear != null ? String(card.expYear) : undefined,
+      expiry: card.expiry != null ? String(card.expiry) : undefined,
+      cvv: card.cvv != null ? String(card.cvv) : undefined,
+      balance:
+        typeof card.balance === "number" || typeof card.balance === "string"
+          ? card.balance
+          : undefined,
+      amount:
+        typeof card.amount === "number"
+          ? card.amount
+          : Number.isFinite(Number(card.amount))
+            ? Number(card.amount)
+            : null,
+      transactions: normalizeCardTransactions(card),
+      archived: card.archived === true,
+    };
+  });
 }
 
 function maskPan(pan: string) {
   const digits = pan.replace(/\s/g, "");
   return `•••• •••• •••• ${digits.slice(-4)}`;
+}
+
+function cardBalance(card: DisplayCard) {
+  const balance = Number(card.balance);
+  return Number.isFinite(balance) ? balance.toFixed(2) : null;
+}
+
+function txAmount(txn: DisplayCard["transactions"][number]) {
+  if (txn.amount == null) return "—";
+  const prefix = txn.isCredit === true ? "+" : txn.isCredit === false ? "-" : "";
+  return `${prefix}${Math.abs(txn.amount).toFixed(2)}`;
+}
+
+function cardTitle(card: DisplayCard) {
+  return `${card.label ?? (card.type === "intl" ? "International" : "U.S.")} card`;
 }
 
 export default function Cards() {
@@ -56,6 +90,7 @@ export default function Cards() {
 
   const [configured, setConfigured] = useState<boolean | null>(null);
   const [cards, setCards] = useState<DisplayCard[]>([]);
+  const [archivedCards, setArchivedCards] = useState<DisplayCard[]>([]);
   const [accountBalance, setAccountBalance] = useState<string | null>(null);
   const [amount, setAmount] = useState("100");
   const [type, setType] = useState<"intl" | "us">("intl");
@@ -80,14 +115,25 @@ export default function Cards() {
   // Applies fetched data to state (called from async callbacks, not the effect
   // body directly).
   const apply = useCallback(
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (d: any) => {
+    (d: CardsResponse) => {
       if (!d || !d.configured) {
         setConfigured(false);
+        setCards([]);
+        setArchivedCards([]);
         return;
       }
       setConfigured(true);
-      setCards([...normalize(d.intl, "intl"), ...normalize(d.us, "us")]);
+      const active = normalizeServerCards(d.cards);
+      const archived = normalizeServerCards(d.archivedCards);
+      setCards(
+        Array.isArray(d.cards)
+          ? active
+          : [
+              ...normalizeLasoCards(d.intl, "intl"),
+              ...normalizeLasoCards(d.us, "us"),
+            ]
+      );
+      setArchivedCards(archived);
       const bal = pick(d.account, ["account_balance", "balance"]);
       setAccountBalance(bal != null ? String(bal) : null);
     },
@@ -139,24 +185,35 @@ export default function Cards() {
   }, [amount, type, authHeader, load]);
 
   const refresh = useCallback(
-    async (card: DisplayCard, action: "refresh" | "cancel") => {
+    async (
+      card: DisplayCard,
+      action: "refresh" | "cancel" | "archive" | "unarchive"
+    ) => {
       setError(null);
+      setBusy(true);
       try {
-        await fetch("/api/cards/refresh", {
+        const res = await fetch("/api/cards/refresh", {
           method: "POST",
           headers: { "Content-Type": "application/json", ...(await authHeader()) },
           body: JSON.stringify({
             action,
             card_id: card.id,
+            type: card.type,
             card_type:
               card.type === "intl"
                 ? "Non-Reloadable International"
                 : "Non-Reloadable U.S.",
           }),
         });
+        if (!res.ok) {
+          const d = await res.json().catch(() => ({}));
+          throw new Error(d.error ?? "Request failed");
+        }
         await load();
       } catch (e) {
         setError(e instanceof Error ? e.message : "Request failed");
+      } finally {
+        setBusy(false);
       }
     },
     [authHeader, load]
@@ -282,14 +339,16 @@ export default function Cards() {
               cards.map((card) => {
                 const isReady = !!card.cardNumber;
                 const show = revealed[card.id];
+                const balance = cardBalance(card);
+                const status = card.status?.toLowerCase();
+                const canCancel =
+                  card.type === "intl" &&
+                  (status === "queued" || status === "pending");
+                const transactions = card.transactions;
                 return (
                   <div key={`${card.type}-${card.id}`} className="card p-5">
                     <div className="flex items-center justify-between">
-                      <span className="text-sm">
-                        {card.label ??
-                          (card.type === "intl" ? "International" : "U.S.")}{" "}
-                        card
-                      </span>
+                      <span className="text-sm">{cardTitle(card)}</span>
                       {card.status && (
                         <span className="text-ink-soft rounded-full border border-line px-2 py-0.5 text-xs">
                           {card.status}
@@ -297,9 +356,9 @@ export default function Cards() {
                       )}
                     </div>
 
-                    {card.balance != null && (
+                    {balance != null && (
                       <p className="mt-2 text-2xl font-semibold tabular-nums">
-                        {Number(card.balance).toFixed(2)}{" "}
+                        {balance}{" "}
                         <span className="text-ink-soft text-sm">USDC</span>
                       </p>
                     )}
@@ -326,27 +385,109 @@ export default function Cards() {
                       </p>
                     )}
 
+                    <div className="mt-4 border-t border-line pt-3">
+                      <p className="text-ink-soft mb-2 text-xs">
+                        Transactions
+                      </p>
+                      {transactions.length === 0 ? (
+                        <p className="text-ink-soft text-xs">
+                          No transactions yet.
+                        </p>
+                      ) : (
+                        <div className="flex flex-col gap-2">
+                          {transactions.slice(0, 5).map((txn, index) => (
+                            <div
+                              key={`${card.id}-txn-${index}`}
+                              className="flex items-start justify-between gap-3 text-xs"
+                            >
+                              <div className="min-w-0">
+                                <p className="truncate text-ink">
+                                  {txn.description ?? "Card transaction"}
+                                </p>
+                                {txn.date && (
+                                  <p className="text-ink-soft tabular-nums">
+                                    {txn.date}
+                                  </p>
+                                )}
+                              </div>
+                              <span className="shrink-0 tabular-nums text-ink">
+                                {txAmount(txn)}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
                     <div className="mt-3 flex gap-4 text-xs">
                       <button
                         onClick={() => refresh(card, "refresh")}
+                        disabled={busy}
                         className="text-ink-soft hover:text-ink"
                       >
                         Refresh balance
                       </button>
-                      {card.type === "intl" && card.status === "queued" && (
-                          <button
-                            onClick={() => refresh(card, "cancel")}
-                            className="text-ink-soft hover:text-ink"
-                          >
-                            Cancel order
-                          </button>
-                        )}
+                      {canCancel && (
+                        <button
+                          onClick={() => refresh(card, "cancel")}
+                          disabled={busy}
+                          className="text-ink-soft hover:text-ink"
+                        >
+                          Cancel order
+                        </button>
+                      )}
+                      <button
+                        onClick={() => refresh(card, "archive")}
+                        disabled={busy}
+                        className="text-ink-soft hover:text-ink"
+                      >
+                        Archive
+                      </button>
                     </div>
                   </div>
                 );
               })
             )}
           </div>
+
+          {archivedCards.length > 0 && (
+            <div className="flex flex-col gap-3">
+              <p className="eyebrow mt-2">Archived cards</p>
+              {archivedCards.map((card) => {
+                const balance = cardBalance(card);
+                return (
+                  <div key={`archived-${card.type}-${card.id}`} className="card p-5">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm">{cardTitle(card)}</p>
+                        <p className="text-ink-soft mt-1 text-xs tabular-nums">
+                          {card.cardNumber ? maskPan(card.cardNumber) : card.id}
+                        </p>
+                      </div>
+                      {balance != null && (
+                        <span className="shrink-0 text-sm tabular-nums text-ink-soft">
+                          {balance} USDC
+                        </span>
+                      )}
+                    </div>
+                    <div className="mt-3 flex items-center justify-between gap-3 text-xs">
+                      <span className="text-ink-soft">
+                        {card.transactions.length} transaction
+                        {card.transactions.length === 1 ? "" : "s"}
+                      </span>
+                      <button
+                        onClick={() => refresh(card, "unarchive")}
+                        disabled={busy}
+                        className="text-ink-soft hover:text-ink"
+                      >
+                        Restore
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </section>
           )}
         </main>

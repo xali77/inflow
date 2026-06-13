@@ -9,6 +9,7 @@ type NavItem = { label: string; href: string };
 
 const NAV: NavItem[] = [
   { label: "Home", href: "/home" },
+  { label: "Hold", href: "/portfolio" },
   { label: "Card", href: "/cards" },
   { label: "Grow", href: "/grow" },
 ];

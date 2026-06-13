@@ -2,8 +2,9 @@
 // URLs are deprecated): the backend gets a partner access token, then creates a
 // short-lived session widgetUrl that the client opens. Funds route to/from the
 // user's own Base wallet (USDC). Server-side only — keys never reach the client.
-const ENV = (process.env.TRANSAK_ENV ?? "STAGING").toUpperCase();
-const IS_PROD = ENV === "PRODUCTION";
+const ENV = (process.env.TRANSAK_ENV ?? "STAGING").trim().toUpperCase();
+const IS_PROD = ENV === "PRODUCTION" || ENV === "PROD";
+const ENV_LABEL = IS_PROD ? "PRODUCTION" : "STAGING";
 const AUTH_BASE = IS_PROD ? "https://api.transak.com" : "https://api-stg.transak.com";
 const GATEWAY_BASE = IS_PROD
   ? "https://api-gateway.transak.com"
@@ -22,17 +23,36 @@ export function isTransakConfigured() {
 // one, so cache it in-process rather than refreshing per request.
 let _token: { value: string; expSec: number } | null = null;
 
-async function accessToken(): Promise<string> {
+function transakError(prefix: string, status: number, body: string) {
+  let message = body || "Unknown Transak error";
+  try {
+    const parsed = JSON.parse(body) as {
+      error?: { message?: string; errorCode?: number };
+      message?: string;
+    };
+    message = parsed.error?.message ?? parsed.message ?? message;
+    if (parsed.error?.errorCode) message += ` (code ${parsed.error.errorCode})`;
+  } catch {
+    // keep raw body
+  }
+  return `${prefix} failed ${status} in ${ENV_LABEL}: ${message}`;
+}
+
+async function accessToken(forceRefresh = false): Promise<string> {
   const now = Date.now() / 1000;
-  if (_token && _token.expSec > now + 3600) return _token.value;
+  if (!forceRefresh && _token && _token.expSec > now + 3600) return _token.value;
   const res = await fetch(`${AUTH_BASE}/partners/api/v2/refresh-token`, {
     method: "POST",
-    headers: { "api-secret": API_SECRET!, "content-type": "application/json" },
+    headers: {
+      accept: "application/json",
+      "api-secret": API_SECRET!,
+      "content-type": "application/json",
+    },
     body: JSON.stringify({ apiKey: API_KEY }),
   });
   if (!res.ok) {
     const t = await res.text().catch(() => "");
-    throw new Error(`Transak refresh-token failed ${res.status}: ${t}`);
+    throw new Error(transakError("Transak refresh-token", res.status, t));
   }
   const d = await res.json();
   const value = d?.data?.accessToken as string;
@@ -43,16 +63,18 @@ async function accessToken(): Promise<string> {
   return value;
 }
 
-/** Creates a session widgetUrl for buying (onramp) or selling (offramp) USDC on Base. */
-export async function createWidgetUrl(opts: {
+async function sessionRequest(token: string, opts: {
   walletAddress: string;
   product: RampProduct;
   referrerDomain: string;
-}): Promise<string> {
-  const token = await accessToken();
-  const res = await fetch(`${GATEWAY_BASE}/api/v2/auth/session`, {
+}) {
+  return fetch(`${GATEWAY_BASE}/api/v2/auth/session`, {
     method: "POST",
-    headers: { "access-token": token, "content-type": "application/json" },
+    headers: {
+      accept: "application/json",
+      "access-token": token,
+      "content-type": "application/json",
+    },
     body: JSON.stringify({
       widgetParams: {
         apiKey: API_KEY,
@@ -65,9 +87,31 @@ export async function createWidgetUrl(opts: {
       },
     }),
   });
+}
+
+/** Creates a session widgetUrl for buying (onramp) or selling (offramp) USDC on Base. */
+export async function createWidgetUrl(opts: {
+  walletAddress: string;
+  product: RampProduct;
+  referrerDomain: string;
+}): Promise<string> {
+  let token = await accessToken();
+  let res = await sessionRequest(token, opts);
+
+  // Calling refresh-token elsewhere invalidates older tokens. If the dev server
+  // has one cached, mint a fresh token once and retry the single-use session.
+  if (res.status === 401) {
+    _token = null;
+    token = await accessToken(true);
+    res = await sessionRequest(token, opts);
+  }
+
   if (!res.ok) {
     const t = await res.text().catch(() => "");
-    throw new Error(`Transak session failed ${res.status}: ${t}`);
+    const detail = transakError("Transak session", res.status, t);
+    throw new Error(
+      `${detail}. Check that TRANSAK_ENV=${ENV_LABEL} matches the API key/secret environment in the Transak dashboard, and that the referrer domain/backend IP is allowed for that environment.`
+    );
   }
   const d = await res.json();
   const url = d?.data?.widgetUrl as string;

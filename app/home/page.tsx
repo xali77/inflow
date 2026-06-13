@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { usePrivy } from "@privy-io/react-auth";
+import Sidebar from "@/components/sidebar";
 import Balance from "@/components/balance";
 import WorldIdVerify from "@/components/world-id-verify";
 import SendSheet from "@/components/send-sheet";
@@ -11,16 +12,22 @@ import ReceiveSheet from "@/components/receive-sheet";
 import ActivityList from "@/components/activity-list";
 import GrowCard from "@/components/grow-card";
 
+function greeting() {
+  const h = new Date().getHours();
+  if (h < 12) return "Good morning";
+  if (h < 18) return "Good afternoon";
+  return "Good evening";
+}
+
 export default function Home() {
   const { ready, authenticated, logout, user } = usePrivy();
   const router = useRouter();
   const address = user?.wallet?.address;
 
   const [verified, setVerified] = useState(false);
+  const [name, setName] = useState<string | null>(null);
   const [openSheet, setOpenSheet] = useState<"send" | "receive" | null>(null);
-  // Bumped after a send to refresh balance + activity.
   const [refresh, setRefresh] = useState(0);
-  // Profile gate: new users must complete onboarding before reaching home.
   const [profileReady, setProfileReady] = useState(false);
 
   useEffect(() => {
@@ -32,13 +39,16 @@ export default function Home() {
     fetch(`/api/profile?address=${address}`)
       .then((res) => res.json())
       .then((data) => {
-        if (data.profile) setProfileReady(true);
-        else router.replace("/onboarding");
+        if (data.profile) {
+          setName(data.profile.name ?? null);
+          setProfileReady(true);
+        } else {
+          router.replace("/onboarding");
+        }
       })
       .catch(() => setProfileReady(true));
   }, [authenticated, address, router]);
 
-  // Verification state lives on the server, never in client storage.
   useEffect(() => {
     if (!address) return;
     fetch(`/api/verify-worldid?address=${address}`)
@@ -49,73 +59,101 @@ export default function Home() {
 
   if (!ready || !authenticated || !profileReady) {
     return (
-      <main className="flex flex-1 items-center justify-center">
+      <main className="flex min-h-screen flex-1 items-center justify-center">
         <p className="text-ink-soft text-sm">Loading…</p>
       </main>
     );
   }
 
+  const dateStr = new Date().toLocaleDateString(undefined, {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+  });
+
   return (
-    <main className="flex flex-1 flex-col gap-4 px-5 pb-12">
-      <header className="flex items-center justify-between py-5">
-        <span className="flex items-center gap-2 font-medium">
-          <Image
-            src="/logo.png"
-            alt="Inflow"
-            width={26}
-            height={26}
-            className="rounded-lg"
-          />
-          Inflow
-        </span>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => router.push("/cards")}
-            className="rounded-full border border-line px-3.5 py-1.5 text-xs text-ink-soft transition-colors hover:text-ink"
-          >
-            Cards
-          </button>
-          <button
-            onClick={logout}
-            className="rounded-full border border-line px-3.5 py-1.5 text-xs text-ink-soft transition-colors hover:text-ink"
-          >
-            Log out
-          </button>
+    <div className="flex min-h-screen">
+      <Sidebar />
+
+      <div className="flex-1">
+        {/* Mobile top bar (sidebar is hidden below lg) */}
+        <div className="flex items-center justify-between border-b border-line px-5 py-4 lg:hidden">
+          <span className="flex items-center gap-2 font-medium">
+            <Image src="/logo.png" alt="Inflow" width={24} height={24} className="rounded-md" />
+            Inflow
+          </span>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => router.push("/cards")}
+              className="rounded-full border border-line px-3.5 py-1.5 text-xs text-ink-soft"
+            >
+              Card
+            </button>
+            <button
+              onClick={logout}
+              className="rounded-full border border-line px-3.5 py-1.5 text-xs text-ink-soft"
+            >
+              Log out
+            </button>
+          </div>
         </div>
-      </header>
 
-      {/* Balance + primary actions */}
-      <section className="card p-6">
-        <Balance address={address} reloadSignal={refresh} />
-        <div className="mt-6 grid grid-cols-2 gap-3">
-          <button
-            onClick={() => setOpenSheet("send")}
-            className="rounded-xl border border-line bg-ground py-3 text-sm font-medium text-ink transition-colors hover:border-ink-soft/40"
-          >
-            Send
-          </button>
-          <button
-            onClick={() => setOpenSheet("receive")}
-            className="rounded-xl border border-line bg-ground py-3 text-sm font-medium text-ink transition-colors hover:border-ink-soft/40"
-          >
-            Receive
-          </button>
-        </div>
-      </section>
+        <main className="mx-auto max-w-5xl px-5 py-6 lg:px-10 lg:py-9">
+          {/* Greeting + primary actions */}
+          <div className="mb-6 flex items-start justify-between gap-4">
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight">
+                {greeting()}
+                {name ? `, ${name}` : ""}
+              </h1>
+              <p className="text-ink-soft mt-0.5 text-sm">{dateStr}</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setOpenSheet("receive")}
+                aria-label="Receive"
+                className="text-ink-soft flex h-10 w-10 items-center justify-center rounded-full border border-line transition-colors hover:text-ink"
+              >
+                ↓
+              </button>
+              <button
+                onClick={() => setOpenSheet("send")}
+                className="bg-ink text-ground flex items-center gap-1.5 rounded-full px-4 py-2.5 text-sm font-medium transition-opacity hover:opacity-90"
+              >
+                ↑ Send money
+              </button>
+            </div>
+          </div>
 
-      {/* FlowScore */}
-      <section className="card flex flex-col items-center gap-5 p-6">
-        <p className="eyebrow self-start">FlowScore</p>
-        <WorldIdVerify
-          address={address}
-          verified={verified}
-          onVerified={() => setVerified(true)}
-        />
-      </section>
+          {/* Dashboard grid */}
+          <div className="grid gap-4 lg:grid-cols-2">
+            <div className="flex flex-col gap-4">
+              <section className="card relative overflow-hidden p-6">
+                <div className="bg-accent/5 pointer-events-none absolute -right-16 -top-16 h-48 w-48 rounded-full blur-2xl" />
+                <Balance address={address} reloadSignal={refresh} />
+              </section>
+              <ActivityList address={address} reloadSignal={refresh} />
+            </div>
 
-      <GrowCard address={address} />
-
-      <ActivityList address={address} reloadSignal={refresh} />
+            <div className="flex flex-col gap-4">
+              <section
+                id="score"
+                className="card flex scroll-mt-6 flex-col items-center gap-5 p-6"
+              >
+                <p className="eyebrow self-start">FlowScore</p>
+                <WorldIdVerify
+                  address={address}
+                  verified={verified}
+                  onVerified={() => setVerified(true)}
+                />
+              </section>
+              <div id="grow" className="scroll-mt-6">
+                <GrowCard address={address} />
+              </div>
+            </div>
+          </div>
+        </main>
+      </div>
 
       <SendSheet
         open={openSheet === "send"}
@@ -128,6 +166,6 @@ export default function Home() {
         onClose={() => setOpenSheet(null)}
         address={address}
       />
-    </main>
+    </div>
   );
 }

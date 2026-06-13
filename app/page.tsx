@@ -14,7 +14,7 @@ export default function Landing() {
   }, [ready, authenticated, router]);
 
   return (
-    <main className="flex flex-1 flex-col items-center justify-center gap-6 px-6 text-center">
+    <main className="flex min-h-screen flex-1 flex-col items-center justify-center gap-6 px-6 text-center">
       <Image
         src="/logo.png"
         alt="Inflow"

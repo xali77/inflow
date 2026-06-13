@@ -62,14 +62,14 @@ export default function Onboarding() {
 
   if (!ready || !authenticated || !checked) {
     return (
-      <main className="flex flex-1 items-center justify-center">
+      <main className="flex min-h-screen flex-1 items-center justify-center">
         <p className="text-ink-soft text-sm">Loading…</p>
       </main>
     );
   }
 
   return (
-    <main className="flex flex-1 flex-col justify-center px-6 py-10">
+    <main className="mx-auto flex min-h-screen w-full max-w-md flex-1 flex-col justify-center px-6 py-10">
       <div className="mb-8 text-center">
         <h1 className="text-2xl font-semibold tracking-tight">
           Tell us about you

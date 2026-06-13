@@ -1,8 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { usePrivy, useDelegatedActions } from "@privy-io/react-auth";
+import Sidebar from "@/components/sidebar";
 
 type DisplayCard = {
   id: string;
@@ -49,7 +51,7 @@ function maskPan(pan: string) {
 }
 
 export default function Cards() {
-  const { ready, authenticated, getAccessToken, user } = usePrivy();
+  const { ready, authenticated, getAccessToken, user, logout } = usePrivy();
   const { delegateWallet } = useDelegatedActions();
   const router = useRouter();
   const address = user?.wallet?.address;
@@ -175,7 +177,7 @@ export default function Cards() {
 
   if (!ready || !authenticated || configured === null) {
     return (
-      <main className="flex flex-1 items-center justify-center">
+      <main className="flex min-h-screen flex-1 items-center justify-center">
         <p className="text-ink-soft text-sm">Loading…</p>
       </main>
     );
@@ -187,19 +189,34 @@ export default function Cards() {
       : Number(amount).toFixed(2);
 
   return (
-    <main className="flex flex-1 flex-col gap-4 px-5 pb-12">
-      <header className="flex items-center justify-between py-5">
-        <button
-          onClick={() => router.push("/home")}
-          className="text-ink-soft text-sm transition-colors hover:text-ink"
-        >
-          ‹ Back
-        </button>
-        <span className="font-medium">Cards</span>
-        <span className="w-10" />
-      </header>
+    <div className="flex min-h-screen">
+      <Sidebar />
+      <div className="flex-1">
+        <div className="flex items-center justify-between border-b border-line px-5 py-4 lg:hidden">
+          <span className="flex items-center gap-2 font-medium">
+            <Image src="/logo.png" alt="Inflow" width={24} height={24} className="rounded-md" />
+            Inflow
+          </span>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => router.push("/home")}
+              className="rounded-full border border-line px-3.5 py-1.5 text-xs text-ink-soft"
+            >
+              Home
+            </button>
+            <button
+              onClick={logout}
+              className="rounded-full border border-line px-3.5 py-1.5 text-xs text-ink-soft"
+            >
+              Log out
+            </button>
+          </div>
+        </div>
 
-      {configured === false ? (
+        <main className="mx-auto max-w-3xl px-5 py-6 lg:px-10 lg:py-9">
+          <h1 className="mb-6 text-2xl font-semibold tracking-tight">Cards</h1>
+
+          {configured === false ? (
         <div className="card p-5">
           <p className="text-sm">Cards aren&rsquo;t set up yet</p>
           <p className="text-ink-soft mt-2 text-xs">
@@ -352,7 +369,9 @@ export default function Cards() {
             )}
           </div>
         </section>
-      )}
-    </main>
+          )}
+        </main>
+      </div>
+    </div>
   );
 }

@@ -14,6 +14,7 @@ const API_KEY = process.env.TRANSAK_API_KEY;
 const API_SECRET = process.env.TRANSAK_API_SECRET;
 
 export type RampProduct = "BUY" | "SELL";
+type WidgetParams = Record<string, string | boolean>;
 
 export function isTransakConfigured() {
   return !!API_KEY && !!API_SECRET;
@@ -68,6 +69,27 @@ async function sessionRequest(token: string, opts: {
   product: RampProduct;
   referrerDomain: string;
 }) {
+  const widgetParams: WidgetParams = {
+    apiKey: API_KEY!,
+    referrerDomain: opts.referrerDomain,
+    productsAvailed: opts.product,
+    network: "base",
+    cryptoCurrencyCode: "USDC",
+    colorMode: "DARK",
+    themeColor: "E8A33D",
+  };
+
+  if (opts.product === "BUY") {
+    // BUY wallet params mean "send purchased crypto to this wallet".
+    widgetParams.walletAddress = opts.walletAddress;
+    widgetParams.disableWalletAddressForm = true;
+  } else {
+    // SELL starts an off-ramp session. Transak will show the destination wallet
+    // users must send crypto to, so do not pass our user's wallet as a BUY-style
+    // destination address.
+    widgetParams.defaultFiatCurrency = "USD";
+  }
+
   return fetch(`${GATEWAY_BASE}/api/v2/auth/session`, {
     method: "POST",
     headers: {
@@ -76,15 +98,7 @@ async function sessionRequest(token: string, opts: {
       "content-type": "application/json",
     },
     body: JSON.stringify({
-      widgetParams: {
-        apiKey: API_KEY,
-        referrerDomain: opts.referrerDomain,
-        walletAddress: opts.walletAddress,
-        network: "base",
-        cryptoCurrencyCode: "USDC",
-        defaultCryptoCurrency: "USDC",
-        productsAvailed: opts.product,
-      },
+      widgetParams,
     }),
   });
 }

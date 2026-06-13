@@ -30,6 +30,31 @@ const config: WidgetConfig = {
       { chainId: 8453, address: WETH_BASE, symbol: "WETH", decimals: 18, name: "Wrapped Ether" },
     ],
   },
+  // Strip the DeFi clutter for a clean, CEX-like feel.
+  hiddenUI: {
+    poweredBy: true,
+    language: true,
+    bridgesSettings: true,
+    integratorStepDetails: true,
+    routeCardPriceImpact: true,
+    routeTokenDescription: true,
+    gasRefuelMessage: true,
+  },
+  // Match the Flows warm-dark palette (LI.FI v4 uses MUI colorSchemes).
+  theme: {
+    colorSchemes: {
+      dark: {
+        palette: {
+          primary: { main: "#E8A33D" },
+          secondary: { main: "#9B9189" },
+          background: { default: "#14110F", paper: "#1D1916" },
+          text: { primary: "#F4EFE9", secondary: "#9B9189" },
+        },
+      },
+    },
+    shape: { borderRadius: 16 },
+    container: { border: "1px solid #2A241F", borderRadius: "20px" },
+  },
 };
 
 export default function SwapModal({

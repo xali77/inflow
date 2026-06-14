@@ -105,10 +105,14 @@ export function computeAnalytics(
 
   const flowLines = computeFlowLines(events, config);
   const linesByReceiver = new Map<string, FlowLine[]>();
+  const linesBySender = new Map<string, FlowLine[]>();
   for (const line of flowLines) {
-    const lines = linesByReceiver.get(line.receiver) ?? [];
-    lines.push(line);
-    linesByReceiver.set(line.receiver, lines);
+    const recv = linesByReceiver.get(line.receiver) ?? [];
+    recv.push(line);
+    linesByReceiver.set(line.receiver, recv);
+    const send = linesBySender.get(line.sender) ?? [];
+    send.push(line);
+    linesBySender.set(line.sender, send);
   }
 
   const users: UserRow[] = [];
@@ -133,21 +137,26 @@ export function computeAnalytics(
     const repaidTotal = repaidLoans.reduce((s, e) => s + num(e.amount_usd), 0);
     const defaultedTotal = defaultedLoans.reduce((s, e) => s + num(e.amount_usd), 0);
 
-    const userLines = linesByReceiver.get(address) ?? [];
+    // A user's FlowLines — relationships they sustain in EITHER direction. A
+    // reliable sender (who backs loans) builds creditworthiness too, not only
+    // receivers of inflows.
+    const userLines = [
+      ...(linesByReceiver.get(address) ?? []),
+      ...(linesBySender.get(address) ?? []),
+    ];
     const qualifiedLines = userLines.filter((line) => line.qualified);
     const avgLineScore = qualifiedLines.length
       ? qualifiedLines.reduce((sum, line) => sum + line.lineScore, 0) / qualifiedLines.length
       : 0;
 
-    const longevityDays = received.length
-      ? (Math.max(...received.map((e) => new Date(e.created_at).getTime())) -
-          Math.min(...received.map((e) => new Date(e.created_at).getTime()))) /
-        DAY
-      : 0;
+    const remitTimes = [...received, ...sent].map((e) => new Date(e.created_at).getTime());
+    const longevityDays =
+      remitTimes.length > 1 ? (Math.max(...remitTimes) - Math.min(...remitTimes)) / DAY : 0;
+    const relationshipVolume = receivedTotal + sentTotal;
     const flowlines = clamp(
       0.35 * avgLineScore +
         0.25 * Math.min(qualifiedLines.length / 2, 1) * 100 +
-        0.2 * Math.min(receivedTotal / 2000, 1) * 100 +
+        0.2 * Math.min(relationshipVolume / 2000, 1) * 100 +
         0.2 * Math.min(longevityDays / 90, 1) * 100
     );
     const savingsRate = receivedTotal > 0 ? saved / receivedTotal : saved > 0 ? 0.5 : 0;

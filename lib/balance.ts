@@ -5,33 +5,47 @@ import {
   http,
   type Address,
 } from "viem";
-import { baseSepolia } from "viem/chains";
+import { base, baseSepolia } from "viem/chains";
 import { defaultChain } from "./chains";
 import { getUsdcAddress } from "./usdc";
+import { USDC_DECIMALS } from "./usdc";
 import { SEPOLIA_USDC } from "./flowpool";
 
 const client = createPublicClient({ chain: defaultChain, transport: http() });
+const baseClient = createPublicClient({ chain: base, transport: http() });
 const sepoliaClient = createPublicClient({ chain: baseSepolia, transport: http() });
+const BASE_USDC = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
+
+type BalanceClient = {
+  readContract(args: {
+    address: Address;
+    abi: typeof erc20Abi;
+    functionName: "balanceOf";
+    args: [Address];
+  }): Promise<bigint>;
+};
+
+async function readErc20Balance(
+  publicClient: BalanceClient,
+  token: Address,
+  address: Address,
+  decimals: number
+) {
+  const raw = await publicClient.readContract({
+    address: token,
+    abi: erc20Abi,
+    functionName: "balanceOf",
+    args: [address],
+  });
+  return Number(formatUnits(raw, decimals)).toFixed(2);
+}
 
 /** USDC balance on the default chain, formatted to 2 decimals. "0.00" on any failure. */
 export async function getUsdcBalance(address: Address): Promise<string> {
   try {
     const usdc = getUsdcAddress();
     if (usdc) {
-      const [raw, decimals] = await Promise.all([
-        client.readContract({
-          address: usdc,
-          abi: erc20Abi,
-          functionName: "balanceOf",
-          args: [address],
-        }),
-        client.readContract({
-          address: usdc,
-          abi: erc20Abi,
-          functionName: "decimals",
-        }),
-      ]);
-      return Number(formatUnits(raw, decimals)).toFixed(2);
+      return readErc20Balance(client, usdc, address, USDC_DECIMALS);
     }
     const raw = await client.getBalance({ address });
     return Number(
@@ -39,6 +53,20 @@ export async function getUsdcBalance(address: Address): Promise<string> {
     ).toFixed(2);
   } catch {
     return "0.00";
+  }
+}
+
+/** Base mainnet USDC balance, formatted to 2 decimals. Throws instead of masking RPC failures. */
+export async function getBaseUsdcBalance(address: Address): Promise<string> {
+  try {
+    return await readErc20Balance(
+      baseClient,
+      BASE_USDC,
+      address,
+      USDC_DECIMALS
+    );
+  } catch {
+    return readErc20Balance(client, BASE_USDC, address, USDC_DECIMALS);
   }
 }
 

@@ -3,7 +3,7 @@ import type { Address } from "viem";
 import { getEmbeddedWallet } from "@/lib/privy";
 import { logEvent } from "@/lib/events";
 import { getStore } from "@/lib/store";
-import { getUsdcBalance } from "@/lib/balance";
+import { getBaseUsdcBalance } from "@/lib/balance";
 import { normalizeLasoCards, type CardKind } from "@/lib/laso-cards";
 import {
   INTL_CARD_TYPE,
@@ -61,7 +61,7 @@ async function requireWallet(req: NextRequest) {
 }
 
 async function walletStatus(wallet: NonNullable<Awaited<ReturnType<typeof requireWallet>>>) {
-  const baseUsdcBalance = await getUsdcBalance(wallet.address as Address);
+  const baseUsdcBalance = await getBaseUsdcBalance(wallet.address as Address);
   return {
     address: wallet.address,
     delegated: wallet.delegated === true,
@@ -184,7 +184,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const baseUsdcBalance = Number(await getUsdcBalance(wallet.address as Address));
+    const baseUsdcBalance = Number(await getBaseUsdcBalance(wallet.address as Address));
     const required = requiredPayment(amount, type);
     if (!Number.isFinite(baseUsdcBalance) || baseUsdcBalance + 1e-9 < required) {
       return NextResponse.json(

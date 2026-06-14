@@ -107,3 +107,45 @@ create table kv (key text primary key, value jsonb);
 
 Push to GitHub, import in Vercel, set the same env vars (use Supabase in
 production — the JSON file store is per-instance and ephemeral on Vercel).
+
+## FlowPool Contract
+
+The lending pool contract lives at `contracts/src/FlowPool.sol` and is deployed
+with Foundry from `contracts/script/Deploy.s.sol`. For v1 it targets Base
+Sepolia USDC (`0x036CbD53842c5426634e7929541eC2318f3dCF7e`).
+
+1. Create a backend terms signer:
+
+   ```sh
+   cast wallet new
+   ```
+
+   Save its private key as `FLOWPOOL_SIGNER_KEY`. The deploy script derives the
+   contract `termsSigner` address from this key, and the Next.js API uses the
+   same key to sign loan terms.
+
+2. Set deploy env and fund the deployer with Base Sepolia ETH:
+
+   ```sh
+   export BASE_SEPOLIA_RPC_URL=https://sepolia.base.org
+   export DEPLOYER_KEY=0x...
+   export FLOWPOOL_SIGNER_KEY=0x...
+   export FEE_BPS=1000
+   ```
+
+3. Test and deploy:
+
+   ```sh
+   cd contracts
+   forge test -vvv
+   forge script script/Deploy.s.sol --rpc-url base_sepolia --broadcast --private-key $DEPLOYER_KEY
+   ```
+
+4. Copy the printed `FlowPool deployed:` address into `.env.local` and restart
+   the app:
+
+   ```sh
+   NEXT_PUBLIC_FLOWPOOL_ADDRESS=0x...
+   NEXT_PUBLIC_BASE_SEPOLIA_USDC=0x036CbD53842c5426634e7929541eC2318f3dCF7e
+   FLOWPOOL_SIGNER_KEY=0x...
+   ```

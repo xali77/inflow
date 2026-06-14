@@ -129,12 +129,25 @@ export async function clearEvents(): Promise<void> {
 export async function listEvents(limit = 200): Promise<StoredEvent[]> {
   try {
     if (useSupabase) {
-      const res = await fetch(
-        restUrl(`events?select=*&order=created_at.desc&limit=${limit}`),
-        { headers: sbHeaders(), cache: "no-store" }
-      );
-      if (!res.ok) return [];
-      return res.json();
+      // Supabase REST caps each response at ~1000 rows regardless of `limit`,
+      // so page through with the Range header until we have `limit` (or run out).
+      const PAGE = 1000;
+      const out: StoredEvent[] = [];
+      for (let offset = 0; offset < limit; offset += PAGE) {
+        const take = Math.min(PAGE, limit - offset);
+        const res = await fetch(
+          restUrl(`events?select=*&order=created_at.desc&offset=${offset}&limit=${take}`),
+          {
+            headers: { ...sbHeaders(), Range: `${offset}-${offset + take - 1}` },
+            cache: "no-store",
+          }
+        );
+        if (!res.ok) break;
+        const rows = (await res.json()) as StoredEvent[];
+        out.push(...rows);
+        if (rows.length < take) break; // last page
+      }
+      return out;
     }
     const store = getStore();
     return ((await store.get<StoredEvent[]>("events:log")) ?? []).slice(0, limit);

@@ -27,6 +27,8 @@ const pub = createPublicClient({ chain: baseSepolia, transport: http() });
 const usd = (n: number) => `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 const pct = (bps: number) => `${(bps / 100).toFixed(1)}%`;
+const waitForTx = (hash: `0x${string}`) =>
+  pub.waitForTransactionReceipt({ hash, confirmations: 1 });
 
 type Pool = {
   configured: boolean;
@@ -153,7 +155,7 @@ export default function PoolPage() {
   const send = useCallback(
     async (to: Address, data: `0x${string}`) => {
       const { hash } = await sendTransaction({ to, data, chainId: baseSepolia.id });
-      return hash;
+      return hash as `0x${string}`;
     },
     [sendTransaction]
   );
@@ -170,8 +172,13 @@ export default function PoolPage() {
     setError(null);
     try {
       const amt = parseUnits(n.toFixed(2), USDC_DECIMALS);
-      await approveUsdc(amt);
-      await send(FLOWPOOL_ADDRESS, encodeFunctionData({ abi: FLOWPOOL_ABI, functionName: "deposit", args: [amt] }));
+      await waitForTx(await approveUsdc(amt));
+      await waitForTx(
+        await send(
+          FLOWPOOL_ADDRESS,
+          encodeFunctionData({ abi: FLOWPOOL_ABI, functionName: "deposit", args: [amt] })
+        )
+      );
       setDepositAmt("");
       await refresh();
     } catch (e) {
@@ -188,7 +195,12 @@ export default function PoolPage() {
     try {
       const shares = (await pub.readContract({ address: FLOWPOOL_ADDRESS, abi: FLOWPOOL_ABI, functionName: "sharesOf", args: [address] })) as bigint;
       if (shares > BigInt(0))
-        await send(FLOWPOOL_ADDRESS, encodeFunctionData({ abi: FLOWPOOL_ABI, functionName: "withdraw", args: [shares] }));
+        await waitForTx(
+          await send(
+            FLOWPOOL_ADDRESS,
+            encodeFunctionData({ abi: FLOWPOOL_ABI, functionName: "withdraw", args: [shares] })
+          )
+        );
       await refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Withdraw failed");
@@ -233,7 +245,7 @@ export default function PoolPage() {
         if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? "Quote failed");
         const { params, signature, terms } = await res.json();
         const collateral = BigInt(params.collateral);
-        await approveUsdc(collateral);
+        await waitForTx(await approveUsdc(collateral));
         const before = Number(
           await pub.readContract({
             address: FLOWPOOL_ADDRESS,
@@ -251,7 +263,11 @@ export default function PoolPage() {
           nonce: params.nonce as `0x${string}`,
           expiry: BigInt(params.expiry),
         };
-        const hash = await send(FLOWPOOL_ADDRESS, encodeFunctionData({ abi: FLOWPOOL_ABI, functionName: "fundLoan", args: [tuple, signature] }));
+        const hash = await send(
+          FLOWPOOL_ADDRESS,
+          encodeFunctionData({ abi: FLOWPOOL_ABI, functionName: "fundLoan", args: [tuple, signature] })
+        );
+        await waitForTx(hash);
         await fetch("/api/lending/confirm", {
           method: "POST",
           headers: { "Content-Type": "application/json", ...(await authHeader()) },
@@ -280,8 +296,12 @@ export default function PoolPage() {
       setError(null);
       try {
         const total = parseUnits((loan.principal + loan.interest).toFixed(2), USDC_DECIMALS);
-        await approveUsdc(total);
-        const hash = await send(FLOWPOOL_ADDRESS, encodeFunctionData({ abi: FLOWPOOL_ABI, functionName: "repay", args: [BigInt(loan.id)] }));
+        await waitForTx(await approveUsdc(total));
+        const hash = await send(
+          FLOWPOOL_ADDRESS,
+          encodeFunctionData({ abi: FLOWPOOL_ABI, functionName: "repay", args: [BigInt(loan.id)] })
+        );
+        await waitForTx(hash);
         await fetch("/api/lending/confirm", {
           method: "POST",
           headers: { "Content-Type": "application/json", ...(await authHeader()) },
@@ -328,6 +348,7 @@ export default function PoolPage() {
             args: [BigInt(loan.id)],
           })
         );
+        await waitForTx(hash);
         await fetch("/api/lending/confirm", {
           method: "POST",
           headers: { "Content-Type": "application/json", ...(await authHeader()) },

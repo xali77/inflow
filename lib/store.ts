@@ -1,17 +1,24 @@
 import { promises as fs } from "fs";
+import os from "os";
 import path from "path";
 
 /**
  * Thin key-value storage adapter. Supabase when SUPABASE_URL/SUPABASE_ANON_KEY
  * are set (expects a `kv` table: key text primary key, value jsonb), local
  * JSON file otherwise. Later features reuse this.
+ *
+ * Production (Vercel) MUST use Supabase — the file fallback writes to the
+ * read-only/ephemeral serverless filesystem (we point it at /tmp so a
+ * misconfigured deploy degrades to ephemeral storage instead of crashing).
  */
 export interface Store {
   get<T>(key: string): Promise<T | null>;
   set<T>(key: string, value: T): Promise<void>;
 }
 
-const DATA_FILE = path.join(process.cwd(), ".data", "store.json");
+const DATA_FILE = process.env.VERCEL
+  ? path.join(os.tmpdir(), "flows-store.json")
+  : path.join(process.cwd(), ".data", "store.json");
 
 const jsonFileStore: Store = {
   async get<T>(key: string): Promise<T | null> {

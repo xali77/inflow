@@ -1,10 +1,11 @@
 import {
   parseUnits,
   toHex,
+  verifyTypedData,
   type Address,
-  type Hex,
 } from "viem";
-import { toAccount } from "viem/accounts";
+import type { LocalAccount } from "viem/accounts";
+import { createViemAccount } from "@privy-io/server-auth/viem";
 import {
   wrapFetchWithPayment,
   x402Client,
@@ -41,34 +42,12 @@ export function isLasoConfigured() {
 
 // A viem account backed by the user's Privy embedded wallet. Signing is
 // performed server-side by Privy's Wallet API using the app's authorization key.
-function privyAccount(wallet: UserWallet) {
+async function privyAccount(wallet: UserWallet) {
   const privy = getPrivy();
-  return toAccount({
+  return createViemAccount({
+    walletId: wallet.id,
     address: wallet.address as Address,
-    async signMessage({ message }) {
-      const value =
-        typeof message === "string"
-          ? message
-          : typeof message.raw === "string"
-            ? message.raw
-            : Buffer.from(message.raw).toString();
-      const { signature } = await privy.walletApi.ethereum.signMessage({
-        walletId: wallet.id,
-        message: value,
-      });
-      return signature as Hex;
-    },
-    async signTypedData(typedData) {
-      const { signature } = await privy.walletApi.ethereum.signTypedData({
-        walletId: wallet.id,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        typedData: typedData as any,
-      });
-      return signature as Hex;
-    },
-    async signTransaction() {
-      throw new Error("Laso payments do not sign raw transactions.");
-    },
+    privy: privy as unknown as Parameters<typeof createViemAccount>[0]["privy"],
   });
 }
 
@@ -76,7 +55,7 @@ type Clients = {
   siwx: (input: string, init?: RequestInit) => Promise<Response>;
   pay: (input: string, init?: RequestInit) => Promise<Response>;
 };
-const _clientsByWallet = new Map<string, Clients>();
+const _clientsByWallet = new Map<string, Promise<Clients>>();
 
 function replaceBigInts<T>(value: T): T {
   if (typeof value === "bigint") return toHex(value) as T;
@@ -116,13 +95,25 @@ function selectBasePayment(
   return accepted[0];
 }
 
-function privyEvmSigner(account: ReturnType<typeof privyAccount>): ClientEvmSigner {
+function privyEvmSigner(account: LocalAccount): ClientEvmSigner {
   return {
     address: account.address,
     async signTypedData(message) {
-      return account.signTypedData(
-        replaceBigInts(message) as Parameters<typeof account.signTypedData>[0]
+      const typedData = replaceBigInts(message);
+      const signature = await account.signTypedData(
+        typedData as Parameters<typeof account.signTypedData>[0]
       );
+      const valid = await verifyTypedData({
+        ...(typedData as Parameters<typeof verifyTypedData>[0]),
+        address: account.address,
+        signature,
+      }).catch(() => false);
+      if (!valid) {
+        throw new Error(
+          `Privy wallet ${account.address} produced an invalid x402 payment signature. Re-enable card payments for this wallet and confirm the Privy signer is delegated.`
+        );
+      }
+      return signature;
     },
   };
 }
@@ -163,6 +154,39 @@ function paymentRequiredSummary(response: Response) {
   return `${String(base.scheme)} ${String(base.network)}${displayAmount}`;
 }
 
+function paymentResponseSummary(response: Response) {
+  const settlement = decodePaymentRequiredHeader(
+    response.headers.get("payment-response") ??
+      response.headers.get("x-payment-response")
+  );
+  if (!isRecord(settlement)) return null;
+
+  const reason =
+    typeof settlement.errorReason === "string"
+      ? settlement.errorReason
+      : typeof settlement.reason === "string"
+        ? settlement.reason
+        : null;
+  const message =
+    typeof settlement.errorMessage === "string"
+      ? settlement.errorMessage
+      : typeof settlement.message === "string"
+        ? settlement.message
+        : null;
+  const tx =
+    typeof settlement.transaction === "string"
+      ? settlement.transaction
+      : null;
+  const success =
+    typeof settlement.success === "boolean"
+      ? `success=${settlement.success}`
+      : null;
+
+  return [success, reason, message, tx ? `tx=${tx}` : null]
+    .filter(Boolean)
+    .join(", ");
+}
+
 function lasoError(
   path: string,
   response: Response,
@@ -173,30 +197,36 @@ function lasoError(
     return `Laso ${path} failed ${response.status}: ${body}`;
   }
   const summary = paymentRequiredSummary(response);
+  const settlement = paymentResponseSummary(response);
   return [
     `Laso ${path} failed 402 after x402 payment retry`,
     summary ? ` (${summary})` : "",
+    settlement ? `. Settlement: ${settlement}` : "",
     wallet ? ` from ${wallet.address}` : "",
     ". Confirm this Privy wallet has enough Base USDC and delegated signing is enabled.",
     body && body !== "{}" ? ` Response: ${body}` : "",
   ].join("");
 }
 
-function clientsFor(wallet: UserWallet): Clients {
-  const cached = _clientsByWallet.get(wallet.id);
-  if (cached) return cached;
-
-  const account = privyAccount(wallet);
+async function buildClientsFor(wallet: UserWallet): Promise<Clients> {
+  const account = await privyAccount(wallet);
   const client = new x402Client(selectBasePayment);
   registerExactEvmScheme(client, {
     signer: privyEvmSigner(account),
     networks: ["eip155:8453"],
   });
 
-  const built: Clients = {
+  return {
     siwx: wrapFetchWithSIWx(fetch, account) as Clients["siwx"],
     pay: wrapFetchWithPayment(fetch, client) as Clients["pay"],
   };
+}
+
+function clientsFor(wallet: UserWallet): Promise<Clients> {
+  const cached = _clientsByWallet.get(wallet.id);
+  if (cached) return cached;
+
+  const built = buildClientsFor(wallet);
   _clientsByWallet.set(wallet.id, built);
   return built;
 }
@@ -204,10 +234,22 @@ function clientsFor(wallet: UserWallet): Clients {
 // Per-user Laso id_token (each user's wallet signs in, so tokens are per wallet).
 const _tokenByWallet = new Map<string, { value: string; expiresAt: number }>();
 
+function cacheAuthFromResponse(wallet: UserWallet, data: unknown) {
+  if (!isRecord(data)) return;
+  const auth = data.auth;
+  if (!isRecord(auth) || typeof auth.id_token !== "string") return;
+  const expiresIn = Number(auth.expires_in ?? 3600);
+  _tokenByWallet.set(wallet.id, {
+    value: auth.id_token,
+    expiresAt: Date.now() + (Number.isFinite(expiresIn) ? expiresIn : 3600) * 1000,
+  });
+}
+
 async function idTokenFor(wallet: UserWallet): Promise<string> {
   const cached = _tokenByWallet.get(wallet.id);
   if (cached && cached.expiresAt > Date.now() + 30_000) return cached.value;
-  const res = await clientsFor(wallet).siwx(`${BASE_URL}/auth`);
+  const clients = await clientsFor(wallet);
+  const res = await clients.siwx(`${BASE_URL}/auth`);
   if (!res.ok) throw new Error(`Laso /auth failed: ${res.status}`);
   const data = await res.json();
   const token = data?.auth?.id_token as string;
@@ -239,12 +281,15 @@ async function bearer(wallet: UserWallet, path: string, init?: RequestInit) {
 }
 
 async function paid(wallet: UserWallet, path: string) {
-  const res = await clientsFor(wallet).pay(`${BASE_URL}${path}`);
+  const clients = await clientsFor(wallet);
+  const res = await clients.pay(`${BASE_URL}${path}`);
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new Error(lasoError(path, res, text, wallet));
   }
-  return res.json();
+  const data = await res.json();
+  cacheAuthFromResponse(wallet, data);
+  return data;
 }
 
 /** Order an international (non-reloadable) prepaid card, paid from the user's wallet. */

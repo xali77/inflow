@@ -4,6 +4,10 @@ import { useEffect } from "react";
 import { useWallets } from "@privy-io/react-auth";
 import { useSetActiveWallet } from "@privy-io/wagmi";
 
+function isPrivyEmbedded(wallet: { walletClientType?: string }) {
+  return wallet.walletClientType === "privy" || wallet.walletClientType === "privy-v2";
+}
+
 // Makes the user's Privy embedded wallet the active wagmi wallet, so the LI.FI
 // widget transacts from it directly instead of prompting to connect a wallet.
 export default function WalletSync() {
@@ -12,7 +16,7 @@ export default function WalletSync() {
 
   useEffect(() => {
     const embedded =
-      wallets.find((w) => w.walletClientType === "privy") ?? wallets[0];
+      wallets.find(isPrivyEmbedded) ?? wallets[0];
     if (embedded) setActiveWallet(embedded).catch(() => {});
   }, [wallets, setActiveWallet]);
 

@@ -14,7 +14,7 @@ interface IERC20 {
  * - LPs deposit USDC and receive shares; loan interest (minus a protocol fee)
  *   grows share value, defaults shrink it.
  * - A receiver borrows the full principal from the pool, while their *sender*
- *   posts partial collateral (50–75%, set off-chain from FlowScore + LineScore).
+ *   posts partial collateral (set off-chain from FlowScore + LineScore).
  * - The off-chain backend never custodies funds: it only EIP-712-signs the loan
  *   terms. The sender submits `fundLoan` from their own wallet (posting
  *   collateral); the contract verifies the signer and disburses to the receiver.
@@ -38,7 +38,11 @@ contract FlowPool {
     // Lifetime protocol fees sent to treasury.
     uint256 public feesCollected;
 
-    enum Status { Active, Repaid, Defaulted }
+    enum Status {
+        Active,
+        Repaid,
+        Defaulted
+    }
 
     struct Loan {
         address receiver;
@@ -61,11 +65,15 @@ contract FlowPool {
 
     event Deposit(address indexed lp, uint256 amount, uint256 shares);
     event Withdraw(address indexed lp, uint256 amount, uint256 shares);
-    event LoanFunded(uint256 indexed id, address indexed receiver, address indexed sender, uint256 principal, uint256 collateral);
+    event LoanFunded(
+        uint256 indexed id, address indexed receiver, address indexed sender, uint256 principal, uint256 collateral
+    );
     event LoanRepaid(uint256 indexed id, uint256 interest, uint256 fee);
     event LoanDefaulted(uint256 indexed id, uint256 lossToPool);
 
     bool private locked;
+    uint256 private constant SECP256K1N_HALF = 0x7fffffffffffffffffffffffffffffff5d576e7357a4501ddfe92f46681b20a0;
+
     modifier nonReentrant() {
         require(!locked, "reentrant");
         locked = true;
@@ -74,6 +82,7 @@ contract FlowPool {
     }
 
     constructor(address _usdc, address _termsSigner, address _treasury, uint16 _feeBps) {
+        require(_usdc != address(0) && _termsSigner != address(0) && _treasury != address(0), "zero address");
         require(_feeBps <= 5000, "fee too high");
         usdc = IERC20(_usdc);
         termsSigner = _termsSigner;
@@ -134,13 +143,19 @@ contract FlowPool {
     /// Sender (msg.sender) posts collateral and funds a loan authorized by termsSigner.
     function fundLoan(LoanParams calldata p, bytes calldata sig) external nonReentrant returns (uint256 id) {
         require(msg.sender == p.sender, "only sender");
+        // forge-lint: disable-next-line(block-timestamp)
         require(block.timestamp <= p.expiry, "expired");
         require(!usedNonce[p.nonce], "nonce used");
+        require(p.receiver != address(0) && p.sender != address(0), "zero address");
+        // forge-lint: disable-next-line(block-timestamp)
+        require(p.dueDate > block.timestamp, "bad due date");
         require(p.principal > 0 && p.collateral <= p.principal, "bad amounts");
         require(p.principal <= liquidity, "insufficient liquidity");
 
         bytes32 structHash = keccak256(
-            abi.encode(LOAN_TYPEHASH, p.receiver, p.sender, p.principal, p.collateral, p.interest, p.dueDate, p.nonce, p.expiry)
+            abi.encode(
+                LOAN_TYPEHASH, p.receiver, p.sender, p.principal, p.collateral, p.interest, p.dueDate, p.nonce, p.expiry
+            )
         );
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", DOMAIN_SEPARATOR, structHash));
         require(_recover(digest, sig) == termsSigner, "bad signature");
@@ -185,6 +200,7 @@ contract FlowPool {
     function liquidate(uint256 id) external nonReentrant {
         Loan storage l = loans[id];
         require(l.status == Status.Active, "not active");
+        // forge-lint: disable-next-line(block-timestamp)
         require(block.timestamp > l.dueDate, "not due");
 
         outstandingPrincipal -= l.principal;
@@ -228,6 +244,9 @@ contract FlowPool {
         }
         if (v < 27) v += 27;
         require(v == 27 || v == 28, "bad v");
-        return ecrecover(digest, v, r, s);
+        require(uint256(s) <= SECP256K1N_HALF, "bad s");
+        address signer = ecrecover(digest, v, r, s);
+        require(signer != address(0), "bad sig");
+        return signer;
     }
 }

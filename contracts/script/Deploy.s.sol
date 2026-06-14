@@ -21,7 +21,11 @@ contract Deploy is Script {
         address usdc = vm.envAddress("USDC");
         address termsSigner = vm.envAddress("TERMS_SIGNER");
         address treasury = vm.envAddress("TREASURY");
-        uint16 feeBps = uint16(vm.envOr("FEE_BPS", uint256(1000)));
+        uint256 rawFeeBps = vm.envOr("FEE_BPS", uint256(1000));
+        require(rawFeeBps <= type(uint16).max, "FEE_BPS overflows uint16");
+        // casting to uint16 is safe because the value is bounded above.
+        // forge-lint: disable-next-line(unsafe-typecast)
+        uint16 feeBps = uint16(rawFeeBps);
 
         vm.startBroadcast();
         FlowPool pool = new FlowPool(usdc, termsSigner, treasury, feeBps);

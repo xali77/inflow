@@ -1,9 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { usePrivy, useSessionSigners, useWallets } from "@privy-io/react-auth";
+import { usePrivy, useSigners, useWallets } from "@privy-io/react-auth";
 import Sidebar from "@/components/sidebar";
 import {
   normalizeCardTransactions,
@@ -13,15 +13,25 @@ import {
 
 type DisplayCard = NormalizedLasoCard;
 
-const PRIVY_SIGNER_ID = process.env.NEXT_PUBLIC_PRIVY_SIGNER_ID;
-
 type CardsResponse = {
   configured?: boolean;
+  signerId?: string;
+  signerIdConfigured?: boolean;
+  wallet?: WalletInfo;
   cards?: unknown;
   archivedCards?: unknown;
   intl?: unknown;
   us?: unknown;
   account?: unknown;
+};
+
+type WalletInfo = {
+  address?: string;
+  delegated?: boolean;
+  walletClientType?: string;
+  baseUsdcBalance?: string;
+  signerIdConfigured?: boolean;
+  requiredBaseUsdc?: string;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -74,6 +84,10 @@ function safeTransactions(card: DisplayCard) {
   return Array.isArray(card.transactions) ? card.transactions : [];
 }
 
+function isPrivyEmbeddedWallet(wallet: { walletClientType?: string }) {
+  return wallet.walletClientType === "privy" || wallet.walletClientType === "privy-v2";
+}
+
 function maskPan(pan: string) {
   const digits = pan.replace(/\s/g, "");
   return `•••• •••• •••• ${digits.slice(-4)}`;
@@ -94,29 +108,33 @@ function cardTitle(card: DisplayCard) {
   return `${card.label ?? (card.type === "intl" ? "International" : "U.S.")} card`;
 }
 
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 export default function Cards() {
   const { ready, authenticated, getAccessToken, logout } = usePrivy();
-  const { addSessionSigners } = useSessionSigners();
+  const { addSigners } = useSigners();
   const { wallets } = useWallets();
   const router = useRouter();
 
   const [configured, setConfigured] = useState<boolean | null>(null);
+  const [signerId, setSignerId] = useState("");
+  const [walletInfo, setWalletInfo] = useState<WalletInfo | null>(null);
   const [cards, setCards] = useState<DisplayCard[]>([]);
   const [archivedCards, setArchivedCards] = useState<DisplayCard[]>([]);
   const [accountBalance, setAccountBalance] = useState<string | null>(null);
-  const [amount, setAmount] = useState("100");
-  const [type, setType] = useState<"intl" | "us">("intl");
+  const [amount, setAmount] = useState("5");
+  const [type, setType] = useState<"intl" | "us">("us");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [revealed, setRevealed] = useState<Record<string, boolean>>({});
-  const signerEnabledRef = useRef(false);
+  const [signerReady, setSignerReady] = useState(false);
 
   useEffect(() => {
     if (ready && !authenticated) router.replace("/");
   }, [ready, authenticated, router]);
 
-  const embeddedWalletAddress =
-    wallets.find((wallet) => wallet.walletClientType === "privy")?.address;
+  const embeddedWallet = wallets.find(isPrivyEmbeddedWallet);
+  const embeddedWalletAddress = embeddedWallet?.address;
 
   const authHeader = useCallback(async (): Promise<Record<string, string>> => {
     const token = await getAccessToken();
@@ -137,11 +155,17 @@ export default function Cards() {
     (d: CardsResponse) => {
       if (!d || !d.configured) {
         setConfigured(false);
+        setSignerId(d?.signerId ?? "");
+        setWalletInfo(null);
+        setSignerReady(false);
         setCards([]);
         setArchivedCards([]);
         return;
       }
       setConfigured(true);
+      setSignerId(d.signerId ?? "");
+      setWalletInfo(d.wallet ?? null);
+      setSignerReady(d.wallet?.delegated === true);
       const active = normalizeServerCards(d.cards);
       const archived = normalizeServerCards(d.archivedCards);
       setCards(
@@ -183,24 +207,39 @@ export default function Cards() {
   }, [authenticated, fetchCards, apply]);
 
   const ensureSignerEnabled = useCallback(async () => {
-    if (signerEnabledRef.current || !embeddedWalletAddress || !PRIVY_SIGNER_ID) {
+    if (signerReady || walletInfo?.delegated === true) {
+      setSignerReady(true);
       return;
+    }
+    if (!embeddedWalletAddress) {
+      throw new Error("No Privy embedded wallet found. Sign in with email so Privy can create one.");
+    }
+    if (!signerId) {
+      throw new Error(
+        "Missing Privy signer id. Set PRIVY_SIGNER_ID or NEXT_PUBLIC_PRIVY_SIGNER_ID, then restart."
+      );
     }
 
     try {
-      await addSessionSigners({
+      await addSigners({
         address: embeddedWalletAddress,
-        signers: [{ signerId: PRIVY_SIGNER_ID }],
+        signers: [{ signerId }],
       });
-      signerEnabledRef.current = true;
+      setSignerReady(true);
+      setWalletInfo((info) =>
+        info ? { ...info, delegated: true, signerIdConfigured: true } : info
+      );
     } catch (e) {
       if (/duplicate|already/i.test(e instanceof Error ? e.message : "")) {
-        signerEnabledRef.current = true;
+        setSignerReady(true);
+        setWalletInfo((info) =>
+          info ? { ...info, delegated: true, signerIdConfigured: true } : info
+        );
         return;
       }
       throw e;
     }
-  }, [addSessionSigners, embeddedWalletAddress]);
+  }, [addSigners, embeddedWalletAddress, signerId, signerReady, walletInfo?.delegated]);
 
   const order = useCallback(async () => {
     setBusy(true);
@@ -214,9 +253,16 @@ export default function Cards() {
       });
       if (!res.ok) {
         const d = await res.json().catch(() => ({}));
+        if (isRecord(d.wallet)) setWalletInfo(d.wallet as WalletInfo);
         throw new Error(d.error ?? "Order failed");
       }
       await load();
+      if (type === "us") {
+        for (let i = 0; i < 4; i++) {
+          await sleep(2_500);
+          await load();
+        }
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Order failed");
     } finally {
@@ -273,6 +319,11 @@ export default function Cards() {
       : Number(amount).toFixed(2);
   const activeCards = safeCards(cards);
   const archivedList = safeCards(archivedCards);
+  const walletBalance = walletInfo?.baseUsdcBalance;
+  const walletAddress = walletInfo?.address ?? embeddedWalletAddress;
+  const shortWallet = walletAddress
+    ? `${walletAddress.slice(0, 6)}…${walletAddress.slice(-4)}`
+    : null;
 
   return (
     <div className="flex min-h-screen">
@@ -307,8 +358,8 @@ export default function Cards() {
           <p className="text-sm">Cards aren&rsquo;t set up yet</p>
           <p className="text-ink-soft mt-2 text-xs">
             Cards are paid from your own wallet via Privy. Configure the Privy
-            server keys (PRIVY_APP_SECRET + PRIVY_AUTHORIZATION_PRIVATE_KEY) to
-            enable card issuing.
+            server keys (PRIVY_APP_SECRET + PRIVY_AUTHORIZATION_PRIVATE_KEY +
+            PRIVY_SIGNER_ID) to enable card issuing.
           </p>
         </div>
       ) : (
@@ -323,8 +374,26 @@ export default function Cards() {
           <div className="card p-5">
             <p className="mb-1 text-sm font-medium">Order a card</p>
             <p className="text-ink-soft mb-3 text-xs">
-              Paid from your own wallet. Enable Grow once to authorize payments.
+              Paid from your embedded Privy wallet on Base.
             </p>
+            <div className="mb-4 grid gap-2 rounded-xl border border-line bg-ground p-3 text-xs sm:grid-cols-3">
+              <div>
+                <p className="eyebrow">Wallet</p>
+                <p className="mt-1 tabular-nums text-ink">{shortWallet ?? "—"}</p>
+              </div>
+              <div>
+                <p className="eyebrow">Base USDC</p>
+                <p className="mt-1 tabular-nums text-ink">
+                  {walletBalance != null ? `${walletBalance} USDC` : "—"}
+                </p>
+              </div>
+              <div>
+                <p className="eyebrow">Signer</p>
+                <p className={signerReady ? "mt-1 text-accent" : "text-ink-soft mt-1"}>
+                  {signerReady ? "Enabled" : signerId ? "Needs approval" : "Missing"}
+                </p>
+              </div>
+            </div>
             <div className="mb-3 grid grid-cols-2 gap-3">
               {(["intl", "us"] as const).map((t) => (
                 <button
@@ -367,7 +436,13 @@ export default function Cards() {
               disabled={busy || Number(amount) < (type === "intl" ? 100 : 5)}
               className="mt-4 w-full rounded-xl border border-line bg-ground px-4 py-3 font-medium text-ink transition-colors hover:border-ink-soft/40 disabled:opacity-50"
             >
-              {busy ? "Ordering…" : `Order ${type === "intl" ? "international" : "U.S."} card`}
+              {busy
+                ? signerReady
+                  ? "Ordering…"
+                  : "Enabling…"
+                : `${signerReady ? "Order" : "Enable & order"} ${
+                    type === "intl" ? "international" : "U.S."
+                  } card`}
             </button>
           </div>
 

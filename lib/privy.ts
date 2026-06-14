@@ -26,13 +26,21 @@ export function getPrivy(): PrivyClient {
   return _privy;
 }
 
-export type EmbeddedWallet = { id: string; address: string };
+export type EmbeddedWallet = {
+  id: string;
+  address: string;
+  delegated?: boolean;
+  imported?: boolean;
+  walletClientType?: string;
+};
 type PrivyLinkedWallet = {
   id?: string | null;
   address?: string;
   walletClientType?: string;
   chainType?: string;
   delegated?: boolean;
+  imported?: boolean;
+  hdWalletIndex?: number | null;
 };
 
 function normalizeAddress(address?: string | null) {
@@ -44,7 +52,8 @@ function isEmbeddedEthereumWallet(
 ): account is PrivyLinkedWallet {
   const wallet = account as PrivyLinkedWallet;
   return (
-    wallet?.walletClientType === "privy" &&
+    (wallet?.walletClientType === "privy" ||
+      wallet?.walletClientType === "privy-v2") &&
     wallet.chainType === "ethereum" &&
     typeof wallet.address === "string"
   );
@@ -68,6 +77,15 @@ export async function getEmbeddedWallet(
   const wallets = user.linkedAccounts.filter(
     (account) => account.type === "wallet" && isEmbeddedEthereumWallet(account)
   );
+  const firstEmbedded = [...wallets].sort((a, b) => {
+    const aImported = a.imported === true ? 1 : 0;
+    const bImported = b.imported === true ? 1 : 0;
+    if (aImported !== bImported) return aImported - bImported;
+    const aDelegated = a.delegated === true ? 0 : 1;
+    const bDelegated = b.delegated === true ? 0 : 1;
+    if (aDelegated !== bDelegated) return aDelegated - bDelegated;
+    return (a.hdWalletIndex ?? 99) - (b.hdWalletIndex ?? 99);
+  })[0];
   const wallet =
     (requested
       ? wallets.find(
@@ -77,8 +95,14 @@ export async function getEmbeddedWallet(
     (primary
       ? wallets.find((candidate) => normalizeAddress(candidate.address) === primary)
       : undefined) ??
-    wallets[0];
+    firstEmbedded;
 
   if (!wallet?.id || !wallet.address) return null;
-  return { id: wallet.id, address: getAddress(wallet.address) };
+  return {
+    id: wallet.id,
+    address: getAddress(wallet.address),
+    delegated: wallet.delegated,
+    imported: wallet.imported,
+    walletClientType: wallet.walletClientType,
+  };
 }
